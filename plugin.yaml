@@ -1,0 +1,32 @@
+name: tripscout
+version: 0.1.0
+description: "Cheap city-break finder: prices flights AND hotels together across a date window, adds the ground cost of reaching each departure airport, and ranks whole trips by total cost."
+author: Marco
+license: MIT
+requires_hermes: ">=0.23"
+python_dependencies:
+  - "fast-flights>=3.1.0,<4"
+  - "primp>=2.0.0,<3"
+  - "typing_extensions>=4.0,<5"
+provides_tools:
+  - tripscout_search
+  - tripscout_price_trip
+  - tripscout_history
+provides_hooks: []
+config_schema:
+  currency:
+    type: str
+    default: EUR
+    description: "Currency for every price."
+  language:
+    type: str
+    default: it
+    description: "Language of the Google interfaces queried."
+  min_interval_seconds:
+    type: float
+    default: 1.0
+    description: "Minimum seconds between two Google requests; raise it if searches get rate-limited."
+  cache_ttl_hours:
+    type: float
+    default: 12.0
+    description: "How long a cached flight or hotel price stays valid."
