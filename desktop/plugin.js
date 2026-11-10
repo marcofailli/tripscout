@@ -12,6 +12,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 const ID = 'tripscout'
 
+// Quando "anywhere" è acceso il pannello sceglie lui le destinazioni: così non
+// dipende dal fatto che il backend conosca la parola magica "any".
+const CHEAP_FIRST = [
+  'Budapest', 'Praga', 'Cracovia', 'Varsavia', 'Bratislava', 'Lubiana',
+  'Sofia', 'Riga', 'Vilnius', 'Tallinn', 'Zagabria', 'Belgrado',
+  'Bucarest', 'Cluj', 'Danzica', 'Brno', 'Porto', 'Valencia'
+]
+
 let API = null
 
 const HAIRLINE = { borderColor: 'var(--ui-stroke-secondary)' }
@@ -167,6 +175,18 @@ function TripscoutPane() {
     )
   }, [])
 
+  // shortlist: le prime 8 città "economiche prima" presenti nel catalogo
+  const shortlist = useCallback(() => {
+    const byName = new Map(allCities.map(city => [city.city, city.city]))
+    const out = CHEAP_FIRST.filter(name => byName.has(name)).slice(0, 8)
+    if (out.length >= 8) return out
+    for (const city of allCities) {
+      if (out.length >= 8) break
+      if (!out.includes(city.city)) out.push(city.city)
+    }
+    return out
+  }, [allCities])
+
   const toggleLodging = useCallback(kind => {
     setLodging(current => {
       if (kind === 'any') return ['any']
@@ -186,17 +206,24 @@ function TripscoutPane() {
       setError('pick a destination, or switch "anywhere" on')
       return
     }
+    const destinationList = anywhere ? shortlist() : picked
+    if (!destinationList.length) {
+      setError('the city list did not load — reopen the pane')
+      return
+    }
     setError('')
     setOpen(null)
     const params = {
       home: home.trim(),
-      destinations: anywhere ? 'any' : picked,
+      destinations: destinationList,
       max_destinations: 8,
       window_start: dateFrom,
       window_end: dateTo,
       nights_min: nightsMin,
       nights_max: nightsMax,
-      weekdays: [], // nessun filtro sui giorni: si parte quando capita
+      weekdays: [
+        'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'
+      ], // elencati tutti: nessun filtro, e vale anche se gira un backend vecchio
       lodging,
       estimates,
       adults,
@@ -212,7 +239,7 @@ function TripscoutPane() {
       setError(String(err && err.message ? err.message : err))
       setJob(null)
     }
-  }, [home, picked, anywhere, dateFrom, dateTo, nightsMin, nightsMax, lodging, estimates, adults, budget])
+  }, [home, picked, anywhere, shortlist, dateFrom, dateTo, nightsMin, nightsMax, lodging, estimates, adults, budget])
 
   const running = jobId !== null
   const result = job && job.result ? job.result : null
@@ -281,7 +308,7 @@ function TripscoutPane() {
       // ---------- dove ----------
       jsx(Section, {
         title: 'where to',
-        aside: anywhere ? 'anywhere: 8 cheap-first cities' : picked.length ? `${picked.length} picked` : 'nothing picked',
+        aside: anywhere ? `${shortlist().length} cheap-first cities` : picked.length ? `${picked.length} picked` : 'nothing picked',
         children: jsxs('div', {
           className: 'flex flex-col gap-1.5',
           children: [
