@@ -183,3 +183,25 @@ def as_destinations(names: list[str]) -> list[dict[str, Any]]:
         if preset is not None:
             out.append(preset.as_destination())
     return out
+
+
+# Ordine "economico prima": quando l'utente dice "non importa dove", si parte da
+# queste. Non è una classifica di prezzo (non la conosciamo senza chiedere), è un
+# insieme ragionevole dove il prezzo basso è la norma.
+CHEAP_FIRST = [
+    "Budapest", "Praga", "Cracovia", "Varsavia", "Bratislava", "Lubiana",
+    "Sofia", "Riga", "Vilnius", "Tallinn", "Zagabria", "Belgrado",
+    "Bucarest", "Cluj", "Danzica", "Brno", "Porto", "Valencia",
+]
+
+
+def shortlist(limit: int = 8) -> list[CityPreset]:
+    """Destinazioni da provare quando la destinazione non conta."""
+    out: list[CityPreset] = []
+    for name in CHEAP_FIRST:
+        preset = resolve(name)
+        if preset is not None:
+            out.append(preset)
+        if len(out) >= max(1, int(limit)):
+            break
+    return out

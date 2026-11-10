@@ -113,10 +113,30 @@ async def start_search(body: dict[str, Any]) -> dict[str, Any]:
 
     params = dict(body)
     # il pannello manda i nomi delle città: qui diventano aeroporti e transfer
-    if isinstance(params.get("destinations"), list):
-        resolved = cities.as_destinations([str(x) for x in params["destinations"]])
+    raw_destinations = params.get("destinations")
+    picked = (
+        [str(x) for x in raw_destinations]
+        if isinstance(raw_destinations, list)
+        else ([str(raw_destinations)] if raw_destinations else [])
+    )
+    wants_any = not picked or any(name.strip().casefold() in ("any", "no matter", "*") for name in picked)
+    if wants_any:
+        limit = params.get("max_destinations") or 8
+        try:
+            limit = max(1, min(12, int(limit)))
+        except (TypeError, ValueError):
+            limit = 8
+        params["destinations"] = [c.as_destination() for c in cities.shortlist(limit)]
+        params["destinations_mode"] = "any"
+    else:
+        resolved = cities.as_destinations(picked)
         if resolved:
             params["destinations"] = resolved
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="none of those cities is known: pick from the list or write 'any'",
+            )
 
     job_id = uuid.uuid4().hex[:12]
     with _LOCK:

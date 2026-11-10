@@ -1,13 +1,9 @@
 /**
  * tripscout — pannello Hermes Desktop.
  *
- * Un pannello, nient'altro: parte da una città ("Prato"), propone le
- * destinazioni a chip, filtra per tipo di alloggio e mostra il viaggio intero
- * — volo, alloggio, adduzione, transfer — con la stima di cibo e attrazioni.
- *
- * Il lavoro vero lo fa il backend (`dashboard/plugin_api.py`), che gira lo
- * stesso motore dei tool dell'agente. Qui non c'è nessuna logica di prezzo:
- * il pannello non può divergere da quello che risponde in chat.
+ * Tre cose che l'utente decide: da dove parte (testo libero, lo interpreta il
+ * backend), dove vuole andare (o "no matter"), e in che finestra di date.
+ * Il resto — volo, alloggio, adduzione, transfer — lo fa il motore.
  */
 
 import { cn, host, useValue } from '@hermes/plugin-sdk'
@@ -18,6 +14,12 @@ const ID = 'tripscout'
 
 let API = null
 
+const WEEKDAYS = [
+  { key: 'thursday', label: 'Thu', dow: 4 },
+  { key: 'friday', label: 'Fri', dow: 5 },
+  { key: 'saturday', label: 'Sat', dow: 6 }
+]
+
 const chipBase =
   'inline-flex items-center rounded-full border px-2 py-0.5 text-[0.6875rem] transition-colors'
 const chipOff =
@@ -26,6 +28,13 @@ const chipOn = 'border-(--ui-accent) text-(--ui-accent) bg-(--chrome-action-hove
 const label = 'text-[0.6875rem] uppercase tracking-wide text-(--ui-text-quaternary)'
 const field =
   'w-full rounded border border-(--ui-stroke-secondary) bg-transparent px-1.5 py-1 text-xs text-foreground'
+const hint = 'text-[0.6875rem] text-(--ui-text-quaternary)'
+
+function isoIn(days) {
+  const d = new Date()
+  d.setDate(d.getDate() + days)
+  return d.toISOString().slice(0, 10)
+}
 
 function Chip({ on, children, onClick, title }) {
   return jsx('button', {
@@ -40,17 +49,15 @@ function Chip({ on, children, onClick, title }) {
 function Row({ caption, children }) {
   return jsxs('div', {
     className: 'flex flex-col gap-1',
-    children: [
-      jsx('div', { className: label, children: caption }),
-      children
-    ]
+    children: [jsx('div', { className: label, children: caption }), children]
   })
 }
 
 function Breakdown({ option }) {
   const est = option.estimate
   return jsxs('div', {
-    className: 'mt-1 flex flex-col gap-0.5 border-l pl-2 text-[0.6875rem] text-(--ui-text-secondary)',
+    className:
+      'mt-1 flex flex-col gap-0.5 border-l pl-2 text-[0.6875rem] text-(--ui-text-secondary)',
     style: { borderColor: 'var(--ui-stroke-secondary)' },
     children: [
       jsx('div', {
@@ -62,8 +69,8 @@ function Breakdown({ option }) {
           })
         : null,
       jsx('div', {
-        className: 'text-(--ui-text-quaternary)',
-        children: `${option.airlines.join(', ') || 'flight'} · ${option.flight_departure || ''}`
+        className: hint,
+        children: `${(option.airlines || []).join(', ') || 'flight'} · ${option.flight_departure || ''}`
       })
     ]
   })
@@ -73,12 +80,14 @@ function TripscoutPane() {
   const gateway = useValue(host.state.gateway)
   const [presets, setPresets] = useState(null)
   const [home, setHome] = useState('Prato')
-  const [region, setRegion] = useState('east')
-  const [picked, setPicked] = useState(['Budapest', 'Vienna', 'Praga'])
-  const [lodging, setLodging] = useState(['any'])
-  const [weekends, setWeekends] = useState(2)
+  const [picked, setPicked] = useState([])
+  const [anywhere, setAnywhere] = useState(true)
   const [nightsMin, setNightsMin] = useState(2)
-  const [nightsMax, setNightsMax] = useState(3)
+  const [nightsMax, setNightsMax] = useState(4)
+  const [dateFrom, setDateFrom] = useState(() => isoIn(12))
+  const [dateTo, setDateTo] = useState(() => isoIn(40))
+  const [days, setDays] = useState(['thursday', 'friday'])
+  const [lodging, setLodging] = useState(['any'])
   const [budget, setBudget] = useState('')
   const [estimates, setEstimates] = useState(true)
   const [jobId, setJobId] = useState(null)
@@ -104,7 +113,6 @@ function TripscoutPane() {
     }
   }, [gateway])
 
-  // un solo timer, spento appena il job finisce
   useEffect(() => {
     if (!jobId || !API) return
     let alive = true
@@ -128,14 +136,21 @@ function TripscoutPane() {
     }
   }, [jobId])
 
-  const destinations = useMemo(() => (presets ? presets.destinations : []), [presets])
-  const regions = useMemo(() => (presets ? presets.regions : []), [presets])
-  const homes = useMemo(() => (presets ? presets.home_cities : []), [presets])
+  const allCities = useMemo(() => (presets ? presets.destinations : []), [presets])
+  const knownHomes = useMemo(() => (presets ? presets.home_cities : []), [presets])
 
   const togglePicked = useCallback(name => {
+    setAnywhere(false)
     setPicked(current =>
-      current.includes(name) ? current.filter(c => c !== name) : [...current, name].slice(0, 10)
+      current.includes(name) ? current.filter(c => c !== name) : [...current, name].slice(0, 12)
     )
+  }, [])
+
+  const toggleAnywhere = useCallback(() => {
+    setAnywhere(current => {
+      if (!current) setPicked([])
+      return !current
+    })
   }, [])
 
   const toggleLodging = useCallback(kind => {
@@ -147,17 +162,46 @@ function TripscoutPane() {
     })
   }, [])
 
+  const toggleDay = useCallback(key => {
+    setDays(current => {
+      const next = current.includes(key) ? current.filter(d => d !== key) : [...current, key]
+      return next.length ? next : current
+    })
+  }, [])
+
+  const setMinNights = useCallback(value => {
+    const n = Number(value)
+    setNightsMin(n)
+    setNightsMax(current => (current < n ? n : current))
+  }, [])
+
+  const setMaxNights = useCallback(value => {
+    const n = Number(value)
+    setNightsMax(n)
+    setNightsMin(current => (current > n ? n : current))
+  }, [])
+
   const run = useCallback(async () => {
     if (!API) return
+    if (!home.trim()) {
+      setError('write where you are leaving from')
+      return
+    }
+    if (!anywhere && !picked.length) {
+      setError('pick at least one destination, or turn on "no matter"')
+      return
+    }
     setError('')
     setOpen(null)
     const params = {
-      home,
-      destinations: picked,
-      weekends,
+      home: home.trim(),
+      destinations: anywhere ? 'any' : picked,
+      max_destinations: 8,
+      window_start: dateFrom,
+      window_end: dateTo,
       nights_min: nightsMin,
       nights_max: nightsMax,
-      weekdays: ['thursday', 'friday'],
+      weekdays: days,
       lodging,
       estimates,
       adults: 1,
@@ -173,12 +217,13 @@ function TripscoutPane() {
       setError(String(err && err.message ? err.message : err))
       setJob(null)
     }
-  }, [home, picked, weekends, nightsMin, nightsMax, lodging, estimates, budget])
+  }, [home, picked, anywhere, dateFrom, dateTo, nightsMin, nightsMax, days, lodging, estimates, budget])
 
   const running = jobId !== null
   const result = job && job.result ? job.result : null
   const options = result && result.options ? result.options : []
   const stats = result && result.stats ? result.stats : null
+  const tried = result && result.query && result.query.destinations ? result.query.destinations : []
 
   if (!presets) {
     return jsx('div', {
@@ -195,31 +240,44 @@ function TripscoutPane() {
         children: [
           jsx('div', { className: 'text-sm font-medium', children: 'tripscout' }),
           jsx('div', {
-            className: 'text-[0.6875rem] text-(--ui-text-quaternary)',
+            className: hint,
             children: presets.cache ? `${presets.cache.cached_entries} cached` : ''
           })
         ]
       }),
 
+      // --- da dove parti: testo libero, lo interpreta il backend -------------
       jsx(Row, {
         caption: 'leaving from',
-        children: jsx('select', {
-          className: field,
-          value: home,
-          onChange: event => setHome(event.target.value),
-          children: homes.map(entry =>
-            jsx('option', { value: entry.city, children: entry.city }, entry.city)
-          )
+        children: jsxs('div', {
+          className: 'flex flex-col gap-1',
+          children: [
+            jsxs('div', {
+              children: [
+                jsx('input', {
+                  className: field,
+                  value: home,
+                  list: 'tripscout-homes',
+                  placeholder: 'write a town, e.g. Prato',
+                  onChange: event => setHome(event.target.value)
+                }),
+                jsx('datalist', {
+                  id: 'tripscout-homes',
+                  children: knownHomes.map(city =>
+                    jsx('option', { value: city.city }, city.city)
+                  )
+                })
+              ]
+            }),
+            jsx('div', {
+              className: hint,
+              children: 'the airports serving it and their train/bus cost are worked out for you'
+            })
+          ]
         })
       }),
 
-      jsxs('div', {
-        className: 'flex flex-wrap gap-1 text-[0.6875rem] text-(--ui-text-quaternary)',
-        children: (homes.find(entry => entry.city === home) || { airports: [] }).airports.map(entry =>
-          jsx('span', { children: `${entry.airport} ~${entry.access_cost.toFixed(0)}` }, entry.airport)
-        )
-      }),
-
+      // --- dove andare: elenco piatto + "no matter" ---------------------------
       jsx(Row, {
         caption: 'where to',
         children: jsxs('div', {
@@ -227,83 +285,95 @@ function TripscoutPane() {
           children: [
             jsx('div', {
               className: 'flex flex-wrap gap-1',
-              children: regions.map(name =>
-                jsx(
-                  Chip,
-                  {
-                    on: region === name,
-                    onClick: () => setRegion(name),
-                    children: name
-                  },
-                  name
-                )
-              )
-            }),
-            jsx('div', {
-              className: 'flex max-h-40 flex-wrap gap-1 overflow-auto',
-              children: destinations
-                .filter(entry => entry.region === region)
-                .map(entry =>
+              children: [
+                jsx(Chip, {
+                  on: anywhere,
+                  title: 'try a shortlist of cheap European cities and let the price decide',
+                  onClick: toggleAnywhere,
+                  children: 'no matter'
+                }),
+                ...allCities.map(city =>
                   jsx(
                     Chip,
                     {
-                      on: picked.includes(entry.city),
-                      title: `${entry.airports.join(' / ')} · transfer ${entry.transfer_cost}`,
-                      onClick: () => togglePicked(entry.city),
-                      children: entry.city
+                      on: !anywhere && picked.includes(city.city),
+                      title: `${city.airports.join(' / ')} · transfer ${city.transfer_cost}`,
+                      onClick: () => togglePicked(city.city),
+                      children: city.city
                     },
-                    entry.city
+                    city.city
                   )
                 )
+              ]
             }),
             jsx('div', {
-              className: 'text-[0.6875rem] text-(--ui-text-quaternary)',
-              children: picked.length ? `${picked.length} selected: ${picked.join(', ')}` : 'pick at least one'
+              className: hint,
+              children: anywhere
+                ? 'no matter: tries up to 8 cheap-first cities and ranks what comes back'
+                : picked.length
+                  ? `${picked.length} picked: ${picked.join(', ')}`
+                  : 'pick at least one'
             })
           ]
         })
       }),
 
+      // --- notti: intervallo con due slider ---------------------------------
+      jsx(Row, {
+        caption: `nights: ${nightsMin}–${nightsMax}`,
+        children: jsxs('div', {
+          className: 'flex flex-col gap-0.5',
+          children: [
+            jsx('input', {
+              type: 'range',
+              min: 1,
+              max: 7,
+              value: nightsMin,
+              className: 'w-full',
+              onChange: event => setMinNights(event.target.value)
+            }),
+            jsx('input', {
+              type: 'range',
+              min: 1,
+              max: 7,
+              value: nightsMax,
+              className: 'w-full',
+              onChange: event => setMaxNights(event.target.value)
+            })
+          ]
+        })
+      }),
+
+      // --- partenza: giorni ammessi + intervallo di date ---------------------
+      jsx(Row, {
+        caption: 'leaving on',
+        children: jsx('div', {
+          className: 'flex flex-wrap gap-1',
+          children: WEEKDAYS.map(day =>
+            jsx(Chip, { on: days.includes(day.key), onClick: () => toggleDay(day.key), children: day.label }, day.key)
+          )
+        })
+      }),
+
       jsxs('div', {
-        className: 'grid grid-cols-3 gap-2',
+        className: 'grid grid-cols-2 gap-2',
         children: [
           jsx(Row, {
-            caption: 'weekends',
-            children: jsx('select', {
-              className: field,
-              value: weekends,
-              onChange: event => setWeekends(Number(event.target.value)),
-              children: [1, 2, 3, 4].map(n => jsx('option', { value: n, children: n }, n))
-            })
-          }),
-          jsx(Row, {
-            caption: 'nights',
-            children: jsxs('div', {
-              className: 'flex items-center gap-1',
-              children: [
-                jsx('select', {
-                  className: field,
-                  value: nightsMin,
-                  onChange: event => setNightsMin(Number(event.target.value)),
-                  children: [1, 2, 3, 4, 5].map(n => jsx('option', { value: n, children: n }, n))
-                }),
-                jsx('select', {
-                  className: field,
-                  value: nightsMax,
-                  onChange: event => setNightsMax(Number(event.target.value)),
-                  children: [1, 2, 3, 4, 5, 6].map(n => jsx('option', { value: n, children: n }, n))
-                })
-              ]
-            })
-          }),
-          jsx(Row, {
-            caption: 'budget EUR',
+            caption: 'from date',
             children: jsx('input', {
+              type: 'date',
               className: field,
-              value: budget,
-              placeholder: 'no limit',
-              inputMode: 'numeric',
-              onChange: event => setBudget(event.target.value)
+              value: dateFrom,
+              onChange: event => setDateFrom(event.target.value)
+            })
+          }),
+          jsx(Row, {
+            caption: 'to date',
+            children: jsx('input', {
+              type: 'date',
+              className: field,
+              value: dateTo,
+              onChange: event => setDateTo(event.target.value)
             })
           })
         ]
@@ -314,56 +384,74 @@ function TripscoutPane() {
         children: jsx('div', {
           className: 'flex flex-wrap gap-1',
           children: ['any', 'hostel', 'hotel', 'apartment'].map(kind =>
-            jsx(
-              Chip,
-              { on: lodging.includes(kind), onClick: () => toggleLodging(kind), children: kind },
-              kind
-            )
+            jsx(Chip, { on: lodging.includes(kind), onClick: () => toggleLodging(kind), children: kind }, kind)
           )
         })
       }),
 
       jsxs('div', {
-        className: 'flex items-center justify-between',
+        className: 'flex items-end justify-between gap-2',
         children: [
-          jsxs('label', {
-            className: 'flex items-center gap-1 text-[0.6875rem] text-(--ui-text-secondary)',
+          jsx(Row, {
+            caption: 'budget EUR',
+            children: jsx('input', {
+              className: field,
+              value: budget,
+              placeholder: 'no limit',
+              inputMode: 'numeric',
+              onChange: event => setBudget(event.target.value)
+            })
+          }),
+          jsx('label', {
+            className: 'flex items-center gap-1 pb-1 text-[0.6875rem] text-(--ui-text-secondary)',
             children: [
               jsx('input', {
                 type: 'checkbox',
                 checked: estimates,
                 onChange: event => setEstimates(event.target.checked)
               }),
-              'food & tickets estimate'
+              'food & tickets'
             ]
           }),
           jsx('button', {
             type: 'button',
-            disabled: running || !picked.length,
+            disabled: running,
             onClick: run,
             className: cn(
               'rounded border border-(--ui-accent) px-2 py-1 text-[0.6875rem] text-(--ui-accent)',
-              running || !picked.length ? 'opacity-50' : 'hover:bg-(--chrome-action-hover)'
+              running ? 'opacity-50' : 'hover:bg-(--chrome-action-hover)'
             ),
-            children: running
-              ? `searching… ${job ? job.elapsed_seconds.toFixed(0) : 0}s`
-              : 'find trips'
+            children: running ? `searching… ${job ? job.elapsed_seconds.toFixed(0) : 0}s` : 'find trips'
           })
         ]
       }),
 
       error
-        ? jsx('div', { className: 'rounded border border-(--ui-stroke-secondary) p-2 text-[0.6875rem] text-(--ui-text-secondary)', children: error })
+        ? jsx('div', {
+            className:
+              'rounded border border-(--ui-stroke-secondary) p-2 text-[0.6875rem] text-(--ui-text-secondary)',
+            children: error
+          })
         : null,
 
       job && job.error
-        ? jsx('div', { className: 'rounded border border-(--ui-stroke-secondary) p-2 text-[0.6875rem]', children: job.error })
+        ? jsx('div', {
+            className: 'rounded border border-(--ui-stroke-secondary) p-2 text-[0.6875rem]',
+            children: job.error
+          })
         : null,
 
       stats
         ? jsx('div', {
-            className: 'text-[0.6875rem] text-(--ui-text-quaternary)',
+            className: hint,
             children: `${stats.combinations_ranked} combinations · ${stats.requests_spent} requests · ${stats.cache_hits} cached · ${stats.elapsed_seconds}s`
+          })
+        : null,
+
+      tried.length
+        ? jsx('div', {
+            className: hint,
+            children: `tried: ${tried.join(', ')}`
           })
         : null,
 
@@ -397,10 +485,7 @@ function TripscoutPane() {
                         className: 'flex flex-col items-end',
                         children: [
                           jsx('div', { className: 'text-xs font-medium', children: option.total_text }),
-                          jsx('div', {
-                            className: 'text-[0.6875rem] text-(--ui-text-quaternary)',
-                            children: option.lodging_kind
-                          })
+                          jsx('div', { className: hint, children: option.lodging_kind })
                         ]
                       })
                     ]
@@ -414,7 +499,7 @@ function TripscoutPane() {
           result && !options.length
             ? jsx('div', {
                 className: 'text-[0.6875rem] text-(--ui-text-secondary)',
-                children: 'no trip within those constraints — widen the dates or the budget'
+                children: 'nothing within those limits — widen the dates or the budget'
               })
             : null
         ]
