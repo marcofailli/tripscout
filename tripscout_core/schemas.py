@@ -142,7 +142,8 @@ SEARCH = {
                 "items": {"type": "string"},
                 "description": (
                     "Allowed departure weekdays, English or Italian names: ['thursday','friday'] or "
-                    "['giovedì','venerdì']. Default Thursday and Friday."
+                    "['giovedì','venerdì']. Omit it for the Thursday/Friday default; pass an empty "
+                    "list (or ['any']) to allow every day."
                 ),
             },
             "budget_total": {

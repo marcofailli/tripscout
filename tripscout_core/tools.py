@@ -218,7 +218,12 @@ def _destinations(raw: Any) -> list[Destination]:
 
 def _spec(params: dict, *, origins: list[Origin], destinations: list[Destination],
           window_start: date, window_end: date) -> Spec:
-    weekdays = parse_weekdays(params.get("weekdays")) or {3, 4}  # giovedì, venerdì
+    # `weekdays` assente = default comodo per l'agente (giovedì e venerdì);
+    # `weekdays` presente ma vuoto (o ["any"]) = nessun filtro, si parte ogni giorno.
+    if params.get("weekdays") is None:
+        weekdays = {3, 4}
+    else:
+        weekdays = parse_weekdays(params.get("weekdays"))
     budget = params.get("budget_total")
     return Spec(
         origins=origins,

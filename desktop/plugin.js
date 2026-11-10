@@ -1,9 +1,9 @@
 /**
  * tripscout — pannello Hermes Desktop.
  *
- * Tre cose che l'utente decide: da dove parte (testo libero, lo interpreta il
- * backend), dove vuole andare (o "no matter"), e in che finestra di date.
- * Il resto — volo, alloggio, adduzione, transfer — lo fa il motore.
+ * Quattro domande e basta: da dove parti, dove vuoi andare, in che finestra di
+ * date, con che vincoli. Nessun filtro nascosto: i giorni di partenza non si
+ * filtrano (si parte quando si vuole), le destinazioni si cercano scrivendo.
  */
 
 import { cn, host, useValue } from '@hermes/plugin-sdk'
@@ -14,26 +14,29 @@ const ID = 'tripscout'
 
 let API = null
 
-const WEEKDAYS = [
-  { key: 'thursday', label: 'Thu', dow: 4 },
-  { key: 'friday', label: 'Fri', dow: 5 },
-  { key: 'saturday', label: 'Sat', dow: 6 }
-]
+const HAIRLINE = { borderColor: 'var(--ui-stroke-secondary)' }
 
 const chipBase =
-  'inline-flex items-center rounded-full border px-2 py-0.5 text-[0.6875rem] transition-colors'
-const chipOff =
-  'border-(--ui-stroke-secondary) text-(--ui-text-secondary) hover:bg-(--chrome-action-hover)'
+  'inline-flex items-center rounded-full border px-2 py-[1px] text-[0.6875rem] leading-5 transition-colors'
+const chipOff = 'border-(--ui-stroke-secondary) text-(--ui-text-secondary) hover:bg-(--chrome-action-hover)'
 const chipOn = 'border-(--ui-accent) text-(--ui-accent) bg-(--chrome-action-hover)'
-const label = 'text-[0.6875rem] uppercase tracking-wide text-(--ui-text-quaternary)'
+const tag = 'rounded-sm border border-(--ui-stroke-secondary) px-1 text-[0.625rem] uppercase tracking-wide text-(--ui-text-quaternary)'
+const labelText = 'text-[0.6875rem] font-medium uppercase tracking-wider text-(--ui-text-quaternary)'
+const muted = 'text-[0.6875rem] text-(--ui-text-quaternary)'
 const field =
-  'w-full rounded border border-(--ui-stroke-secondary) bg-transparent px-1.5 py-1 text-xs text-foreground'
-const hint = 'text-[0.6875rem] text-(--ui-text-quaternary)'
+  'w-full rounded border border-(--ui-stroke-secondary) bg-transparent px-2 py-1 text-xs text-foreground outline-none focus:border-(--ui-accent)'
 
 function isoIn(days) {
   const d = new Date()
   d.setDate(d.getDate() + days)
   return d.toISOString().slice(0, 10)
+}
+
+function shortDate(iso) {
+  if (!iso) return ''
+  const [, m, d] = iso.split('-')
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+  return `${Number(d)} ${months[Number(m) - 1] || m}`
 }
 
 function Chip({ on, children, onClick, title }) {
@@ -46,32 +49,39 @@ function Chip({ on, children, onClick, title }) {
   })
 }
 
-function Row({ caption, children }) {
-  return jsxs('div', {
-    className: 'flex flex-col gap-1',
-    children: [jsx('div', { className: label, children: caption }), children]
+function Section({ title, aside, children }) {
+  return jsxs('section', {
+    className: 'flex flex-col gap-1.5 border-t pt-2.5',
+    style: HAIRLINE,
+    children: [
+      jsxs('div', {
+        className: 'flex items-baseline justify-between',
+        children: [
+          jsx('div', { className: labelText, children: title }),
+          aside ? jsx('div', { className: muted, children: aside }) : null
+        ]
+      }),
+      children
+    ]
   })
 }
 
 function Breakdown({ option }) {
   const est = option.estimate
+  const line = (text, className) => jsx('div', { className: className || 'text-(--ui-text-secondary)', children: text })
   return jsxs('div', {
-    className:
-      'mt-1 flex flex-col gap-0.5 border-l pl-2 text-[0.6875rem] text-(--ui-text-secondary)',
-    style: { borderColor: 'var(--ui-stroke-secondary)' },
+    className: 'mt-2 flex flex-col gap-1 border-l pl-2 text-[0.6875rem]',
+    style: HAIRLINE,
     children: [
-      jsx('div', {
-        children: `${option.flight.toFixed(0)} flight + ${option.hotel.toFixed(0)} stay (${option.hotel_name}, ${option.lodging_kind}) + ${option.access.toFixed(0)} access + ${option.airport_transfer.toFixed(0)} transfer`
-      }),
+      line(`${option.currency || 'EUR'} ${option.flight.toFixed(0)} flight · ${option.hotel.toFixed(0)} stay (${option.hotel_name})`),
+      line(`${option.access.toFixed(0)} getting to ${option.from} · ${option.airport_transfer.toFixed(0)} airport↔town`),
       est
-        ? jsx('div', {
-            children: `+ ${est.food_total.toFixed(0)} food + ${est.activities_total.toFixed(0)} tickets = ${option.total_with_estimates.toFixed(0)} ${option.currency || ''} all-in (estimate)`
-          })
+        ? line(
+            `+ ${est.food_total.toFixed(0)} food + ${est.activities_total.toFixed(0)} tickets → ${option.total_with_estimates.toFixed(0)} all-in (estimate)`,
+            'text-(--ui-text-quaternary)'
+          )
         : null,
-      jsx('div', {
-        className: hint,
-        children: `${(option.airlines || []).join(', ') || 'flight'} · ${option.flight_departure || ''}`
-      })
+      option.flight_departure ? line(`${(option.airlines || []).join(', ') || 'flight'} · ${option.flight_departure}`, 'text-(--ui-text-quaternary)') : null
     ]
   })
 }
@@ -82,12 +92,13 @@ function TripscoutPane() {
   const [home, setHome] = useState('Prato')
   const [picked, setPicked] = useState([])
   const [anywhere, setAnywhere] = useState(true)
+  const [destFilter, setDestFilter] = useState('')
   const [nightsMin, setNightsMin] = useState(2)
   const [nightsMax, setNightsMax] = useState(4)
   const [dateFrom, setDateFrom] = useState(() => isoIn(12))
   const [dateTo, setDateTo] = useState(() => isoIn(40))
-  const [days, setDays] = useState(['thursday', 'friday'])
   const [lodging, setLodging] = useState(['any'])
+  const [adults, setAdults] = useState(1)
   const [budget, setBudget] = useState('')
   const [estimates, setEstimates] = useState(true)
   const [jobId, setJobId] = useState(null)
@@ -129,7 +140,7 @@ function TripscoutPane() {
       }
     }
     tick()
-    const timer = setInterval(tick, 1500)
+    const timer = setInterval(tick, 1200)
     return () => {
       alive = false
       clearInterval(timer)
@@ -137,20 +148,23 @@ function TripscoutPane() {
   }, [jobId])
 
   const allCities = useMemo(() => (presets ? presets.destinations : []), [presets])
-  const knownHomes = useMemo(() => (presets ? presets.home_cities : []), [presets])
+  const homes = useMemo(() => (presets ? presets.home_cities : []), [presets])
+  const shown = useMemo(() => {
+    const needle = destFilter.trim().toLowerCase()
+    if (!needle) return allCities
+    return allCities.filter(
+      city =>
+        city.city.toLowerCase().includes(needle) ||
+        (city.country || '').toLowerCase().includes(needle) ||
+        (city.airports || []).join(' ').toLowerCase().includes(needle)
+    )
+  }, [allCities, destFilter])
 
   const togglePicked = useCallback(name => {
     setAnywhere(false)
     setPicked(current =>
       current.includes(name) ? current.filter(c => c !== name) : [...current, name].slice(0, 12)
     )
-  }, [])
-
-  const toggleAnywhere = useCallback(() => {
-    setAnywhere(current => {
-      if (!current) setPicked([])
-      return !current
-    })
   }, [])
 
   const toggleLodging = useCallback(kind => {
@@ -162,25 +176,6 @@ function TripscoutPane() {
     })
   }, [])
 
-  const toggleDay = useCallback(key => {
-    setDays(current => {
-      const next = current.includes(key) ? current.filter(d => d !== key) : [...current, key]
-      return next.length ? next : current
-    })
-  }, [])
-
-  const setMinNights = useCallback(value => {
-    const n = Number(value)
-    setNightsMin(n)
-    setNightsMax(current => (current < n ? n : current))
-  }, [])
-
-  const setMaxNights = useCallback(value => {
-    const n = Number(value)
-    setNightsMax(n)
-    setNightsMin(current => (current > n ? n : current))
-  }, [])
-
   const run = useCallback(async () => {
     if (!API) return
     if (!home.trim()) {
@@ -188,7 +183,7 @@ function TripscoutPane() {
       return
     }
     if (!anywhere && !picked.length) {
-      setError('pick at least one destination, or turn on "no matter"')
+      setError('pick a destination, or switch "anywhere" on')
       return
     }
     setError('')
@@ -201,11 +196,11 @@ function TripscoutPane() {
       window_end: dateTo,
       nights_min: nightsMin,
       nights_max: nightsMax,
-      weekdays: days,
+      weekdays: [], // nessun filtro sui giorni: si parte quando capita
       lodging,
       estimates,
-      adults: 1,
-      max_requests: 60,
+      adults,
+      max_requests: 70,
       min_interval: 0.8
     }
     if (budget.trim()) params.budget_total = Number(budget)
@@ -217,7 +212,7 @@ function TripscoutPane() {
       setError(String(err && err.message ? err.message : err))
       setJob(null)
     }
-  }, [home, picked, anywhere, dateFrom, dateTo, nightsMin, nightsMax, days, lodging, estimates, budget])
+  }, [home, picked, anywhere, dateFrom, dateTo, nightsMin, nightsMax, lodging, estimates, adults, budget])
 
   const running = jobId !== null
   const result = job && job.result ? job.result : null
@@ -227,28 +222,36 @@ function TripscoutPane() {
 
   if (!presets) {
     return jsx('div', {
-      className: 'flex h-full items-center justify-center p-3 text-xs text-(--ui-text-secondary)',
+      className: 'flex h-full flex-col items-center justify-center gap-2 p-4 text-xs text-(--ui-text-secondary)',
       children: error || 'tripscout: loading…'
     })
   }
 
   return jsxs('div', {
-    className: 'flex h-full flex-col gap-2 overflow-auto p-3 text-xs',
+    className: 'flex h-full flex-col overflow-auto text-xs',
     children: [
+      // ---------- testata ----------
       jsxs('div', {
-        className: 'flex items-center justify-between',
+        className: 'flex items-start justify-between gap-2 pb-2',
         children: [
-          jsx('div', { className: 'text-sm font-medium', children: 'tripscout' }),
+          jsxs('div', {
+            className: 'flex flex-col',
+            children: [
+              jsx('div', { className: 'text-sm font-semibold tracking-tight', children: 'tripscout' }),
+              jsx('div', { className: muted, children: 'flight + bed + getting there, one number' })
+            ]
+          }),
           jsx('div', {
-            className: hint,
-            children: presets.cache ? `${presets.cache.cached_entries} cached` : ''
+            className: cn(tag, 'mt-0.5'),
+            children: presets.cache ? `${presets.cache.cached_entries} cached` : 'no cache'
           })
         ]
       }),
 
-      // --- da dove parti: testo libero, lo interpreta il backend -------------
-      jsx(Row, {
-        caption: 'leaving from',
+      // ---------- da dove ----------
+      jsx(Section, {
+        title: 'leaving from',
+        aside: 'town, not airport',
         children: jsxs('div', {
           className: 'flex flex-col gap-1',
           children: [
@@ -258,234 +261,284 @@ function TripscoutPane() {
                   className: field,
                   value: home,
                   list: 'tripscout-homes',
-                  placeholder: 'write a town, e.g. Prato',
+                  placeholder: 'Prato',
                   onChange: event => setHome(event.target.value)
                 }),
                 jsx('datalist', {
                   id: 'tripscout-homes',
-                  children: knownHomes.map(city =>
-                    jsx('option', { value: city.city }, city.city)
-                  )
+                  children: homes.map(city => jsx('option', { value: city.city }, city.city))
                 })
               ]
             }),
             jsx('div', {
-              className: hint,
-              children: 'the airports serving it and their train/bus cost are worked out for you'
+              className: muted,
+              children: 'every airport serving it, with the train or bus to reach it'
             })
           ]
         })
       }),
 
-      // --- dove andare: elenco piatto + "no matter" ---------------------------
-      jsx(Row, {
-        caption: 'where to',
+      // ---------- dove ----------
+      jsx(Section, {
+        title: 'where to',
+        aside: anywhere ? 'anywhere: 8 cheap-first cities' : picked.length ? `${picked.length} picked` : 'nothing picked',
         children: jsxs('div', {
-          className: 'flex flex-col gap-1',
+          className: 'flex flex-col gap-1.5',
           children: [
-            jsx('div', {
-              className: 'flex flex-wrap gap-1',
+            jsxs('div', {
+              className: 'flex items-center gap-1.5',
               children: [
                 jsx(Chip, {
                   on: anywhere,
-                  title: 'try a shortlist of cheap European cities and let the price decide',
-                  onClick: toggleAnywhere,
-                  children: 'no matter'
+                  title: 'try a shortlist of cheap-first European cities and let the price decide',
+                  onClick: () => {
+                    setAnywhere(true)
+                    setPicked([])
+                  },
+                  children: 'anywhere'
                 }),
-                ...allCities.map(city =>
+                jsx('input', {
+                  className: cn(field, 'flex-1'),
+                  value: destFilter,
+                  placeholder: 'filter 49 cities…',
+                  onChange: event => setDestFilter(event.target.value)
+                })
+              ]
+            }),
+            jsxs('div', {
+              className: 'flex max-h-36 flex-wrap gap-1 overflow-auto',
+              children: [
+                ...shown.slice(0, 60).map(city =>
                   jsx(
                     Chip,
                     {
                       on: !anywhere && picked.includes(city.city),
-                      title: `${city.airports.join(' / ')} · transfer ${city.transfer_cost}`,
+                      title: `${city.country} · ${city.airports.join(' / ')} · town transfer ${city.transfer_cost}`,
                       onClick: () => togglePicked(city.city),
                       children: city.city
                     },
                     city.city
                   )
-                )
+                ),
+                shown.length === 0
+                  ? jsx('div', { className: muted, children: 'no city matches — the engine needs an airport, so pick from the list' })
+                  : null
+              ]
+            })
+          ]
+        })
+      }),
+
+      // ---------- quando ----------
+      jsx(Section, {
+        title: 'when',
+        aside: `${shortDate(dateFrom)} → ${shortDate(dateTo)} · ${nightsMin}–${nightsMax} nights`,
+        children: jsxs('div', {
+          className: 'flex flex-col gap-2',
+          children: [
+            jsxs('div', {
+              className: 'grid grid-cols-2 gap-2',
+              children: [
+                jsx('input', {
+                  type: 'date',
+                  className: field,
+                  value: dateFrom,
+                  onChange: event => setDateFrom(event.target.value)
+                }),
+                jsx('input', {
+                  type: 'date',
+                  className: field,
+                  value: dateTo,
+                  onChange: event => setDateTo(event.target.value)
+                })
               ]
             }),
-            jsx('div', {
-              className: hint,
-              children: anywhere
-                ? 'no matter: tries up to 8 cheap-first cities and ranks what comes back'
-                : picked.length
-                  ? `${picked.length} picked: ${picked.join(', ')}`
-                  : 'pick at least one'
+            jsxs('div', {
+              className: 'flex flex-col gap-1',
+              children: [
+                jsx('div', {
+                  className: 'flex items-center justify-between',
+                  children: jsx('div', {
+                    className: muted,
+                    children: 'nights: drag the two handles'
+                  })
+                }),
+                jsx('input', {
+                  type: 'range',
+                  min: 1,
+                  max: 7,
+                  value: nightsMin,
+                  className: 'w-full accent-(--ui-accent)',
+                  onChange: event => {
+                    const n = Number(event.target.value)
+                    setNightsMin(n)
+                    setNightsMax(current => (current < n ? n : current))
+                  }
+                }),
+                jsx('input', {
+                  type: 'range',
+                  min: 1,
+                  max: 7,
+                  value: nightsMax,
+                  className: 'w-full accent-(--ui-accent)',
+                  onChange: event => {
+                    const n = Number(event.target.value)
+                    setNightsMax(n)
+                    setNightsMin(current => (current > n ? n : current))
+                  }
+                })
+              ]
             })
           ]
         })
       }),
 
-      // --- notti: intervallo con due slider ---------------------------------
-      jsx(Row, {
-        caption: `nights: ${nightsMin}–${nightsMax}`,
+      // ---------- vincoli ----------
+      jsx(Section, {
+        title: 'limits',
+        aside: 'none of them required',
         children: jsxs('div', {
-          className: 'flex flex-col gap-0.5',
+          className: 'flex flex-col gap-2',
           children: [
-            jsx('input', {
-              type: 'range',
-              min: 1,
-              max: 7,
-              value: nightsMin,
-              className: 'w-full',
-              onChange: event => setMinNights(event.target.value)
+            jsx('div', {
+              className: 'flex flex-wrap gap-1',
+              children: ['any', 'hostel', 'hotel', 'apartment'].map(kind =>
+                jsx(Chip, { on: lodging.includes(kind), onClick: () => toggleLodging(kind), children: kind }, kind)
+              )
             }),
-            jsx('input', {
-              type: 'range',
-              min: 1,
-              max: 7,
-              value: nightsMax,
-              className: 'w-full',
-              onChange: event => setMaxNights(event.target.value)
+            jsxs('div', {
+              className: 'grid grid-cols-2 gap-2',
+              children: [
+                jsxs('label', {
+                  className: 'flex flex-col gap-0.5',
+                  children: [
+                    jsx('span', { className: muted, children: 'travellers' }),
+                    jsx('input', {
+                      type: 'number',
+                      min: 1,
+                      max: 9,
+                      className: field,
+                      value: adults,
+                      onChange: event => setAdults(Math.max(1, Number(event.target.value) || 1))
+                    })
+                  ]
+                }),
+                jsxs('label', {
+                  className: 'flex flex-col gap-0.5',
+                  children: [
+                    jsx('span', { className: muted, children: 'budget, all in' }),
+                    jsx('input', {
+                      className: field,
+                      value: budget,
+                      placeholder: 'no limit',
+                      inputMode: 'numeric',
+                      onChange: event => setBudget(event.target.value)
+                    })
+                  ]
+                })
+              ]
+            }),
+            jsxs('label', {
+              className: 'flex items-center gap-1.5 text-[0.6875rem] text-(--ui-text-secondary)',
+              children: [
+                jsx('input', {
+                  type: 'checkbox',
+                  className: 'accent-(--ui-accent)',
+                  checked: estimates,
+                  onChange: event => setEstimates(event.target.checked)
+                }),
+                'add food and ticket estimate'
+              ]
             })
           ]
         })
       }),
 
-      // --- partenza: giorni ammessi + intervallo di date ---------------------
-      jsx(Row, {
-        caption: 'leaving on',
-        children: jsx('div', {
-          className: 'flex flex-wrap gap-1',
-          children: WEEKDAYS.map(day =>
-            jsx(Chip, { on: days.includes(day.key), onClick: () => toggleDay(day.key), children: day.label }, day.key)
-          )
+      // ---------- azione ----------
+      jsx('div', {
+        className: 'py-2',
+        children: jsx('button', {
+          type: 'button',
+          disabled: running,
+          onClick: run,
+          className: cn(
+            'w-full rounded border px-3 py-1.5 text-xs font-medium transition-colors',
+            running
+              ? 'border-(--ui-stroke-secondary) text-(--ui-text-quaternary)'
+              : 'border-(--ui-accent) text-(--ui-accent) hover:bg-(--chrome-action-hover)'
+          ),
+          children: running ? `searching… ${job ? job.elapsed_seconds.toFixed(0) : 0}s` : 'find the trip'
         })
-      }),
-
-      jsxs('div', {
-        className: 'grid grid-cols-2 gap-2',
-        children: [
-          jsx(Row, {
-            caption: 'from date',
-            children: jsx('input', {
-              type: 'date',
-              className: field,
-              value: dateFrom,
-              onChange: event => setDateFrom(event.target.value)
-            })
-          }),
-          jsx(Row, {
-            caption: 'to date',
-            children: jsx('input', {
-              type: 'date',
-              className: field,
-              value: dateTo,
-              onChange: event => setDateTo(event.target.value)
-            })
-          })
-        ]
-      }),
-
-      jsx(Row, {
-        caption: 'sleep in',
-        children: jsx('div', {
-          className: 'flex flex-wrap gap-1',
-          children: ['any', 'hostel', 'hotel', 'apartment'].map(kind =>
-            jsx(Chip, { on: lodging.includes(kind), onClick: () => toggleLodging(kind), children: kind }, kind)
-          )
-        })
-      }),
-
-      jsxs('div', {
-        className: 'flex items-end justify-between gap-2',
-        children: [
-          jsx(Row, {
-            caption: 'budget EUR',
-            children: jsx('input', {
-              className: field,
-              value: budget,
-              placeholder: 'no limit',
-              inputMode: 'numeric',
-              onChange: event => setBudget(event.target.value)
-            })
-          }),
-          jsx('label', {
-            className: 'flex items-center gap-1 pb-1 text-[0.6875rem] text-(--ui-text-secondary)',
-            children: [
-              jsx('input', {
-                type: 'checkbox',
-                checked: estimates,
-                onChange: event => setEstimates(event.target.checked)
-              }),
-              'food & tickets'
-            ]
-          }),
-          jsx('button', {
-            type: 'button',
-            disabled: running,
-            onClick: run,
-            className: cn(
-              'rounded border border-(--ui-accent) px-2 py-1 text-[0.6875rem] text-(--ui-accent)',
-              running ? 'opacity-50' : 'hover:bg-(--chrome-action-hover)'
-            ),
-            children: running ? `searching… ${job ? job.elapsed_seconds.toFixed(0) : 0}s` : 'find trips'
-          })
-        ]
       }),
 
       error
         ? jsx('div', {
-            className:
-              'rounded border border-(--ui-stroke-secondary) p-2 text-[0.6875rem] text-(--ui-text-secondary)',
+            className: 'mb-2 rounded border p-2 text-[0.6875rem] text-(--ui-text-secondary)',
+            style: HAIRLINE,
             children: error
           })
         : null,
 
       job && job.error
         ? jsx('div', {
-            className: 'rounded border border-(--ui-stroke-secondary) p-2 text-[0.6875rem]',
+            className: 'mb-2 rounded border p-2 text-[0.6875rem]',
+            style: HAIRLINE,
             children: job.error
           })
         : null,
 
       stats
         ? jsx('div', {
-            className: hint,
-            children: `${stats.combinations_ranked} combinations · ${stats.requests_spent} requests · ${stats.cache_hits} cached · ${stats.elapsed_seconds}s`
+            className: muted,
+            children: `${stats.combinations_ranked} trips priced · ${stats.requests_spent} requests · ${stats.cache_hits} from cache · ${stats.elapsed_seconds}s`
           })
         : null,
 
       tried.length
-        ? jsx('div', {
-            className: hint,
-            children: `tried: ${tried.join(', ')}`
-          })
+        ? jsx('div', { className: muted, children: `tried: ${tried.join(' · ')}` })
         : null,
 
+      // ---------- risultati ----------
       jsxs('div', {
-        className: 'flex flex-col gap-1',
+        className: 'mt-1.5 flex flex-col gap-1',
         children: [
           options.map((option, index) =>
             jsxs(
               'div',
               {
                 className: cn(
-                  'cursor-pointer rounded border border-(--ui-stroke-secondary) p-2',
+                  'cursor-pointer rounded border px-2 py-1.5 transition-colors hover:bg-(--chrome-action-hover)',
                   index === 0 ? 'border-(--ui-accent)' : ''
                 ),
+                style: index === 0 ? undefined : HAIRLINE,
                 onClick: () => setOpen(open === index ? null : index),
                 children: [
                   jsxs('div', {
                     className: 'flex items-baseline justify-between gap-2',
                     children: [
                       jsxs('div', {
-                        className: 'flex flex-col',
+                        className: 'flex min-w-0 flex-col',
                         children: [
-                          jsx('div', { className: 'text-xs font-medium', children: option.city }),
+                          jsxs('div', {
+                            className: 'flex items-baseline gap-1.5',
+                            children: [
+                              jsx('span', { className: 'truncate text-xs font-medium', children: option.city }),
+                              jsx('span', { className: tag, children: option.lodging_kind })
+                            ]
+                          }),
                           jsx('div', {
-                            className: 'text-[0.6875rem] text-(--ui-text-secondary)',
-                            children: `${option.dates} · from ${option.from}`
+                            className: muted,
+                            children: `${option.dates.replace(' → ', ' – ')} · from ${option.from}`
                           })
                         ]
                       }),
                       jsxs('div', {
                         className: 'flex flex-col items-end',
                         children: [
-                          jsx('div', { className: 'text-xs font-medium', children: option.total_text }),
-                          jsx('div', { className: hint, children: option.lodging_kind })
+                          jsx('div', { className: 'text-xs font-semibold tabular-nums', children: option.total_text }),
+                          option.total_with_estimates
+                            ? jsx('div', { className: muted, children: `${option.total_with_estimates.toFixed(0)} all-in` })
+                            : null
                         ]
                       })
                     ]
@@ -497,9 +550,13 @@ function TripscoutPane() {
             )
           ),
           result && !options.length
-            ? jsx('div', {
-                className: 'text-[0.6875rem] text-(--ui-text-secondary)',
-                children: 'nothing within those limits — widen the dates or the budget'
+            ? jsxs('div', {
+                className: 'flex flex-col items-center gap-1 rounded border p-3 text-center',
+                style: HAIRLINE,
+                children: [
+                  jsx('div', { className: 'text-xs text-(--ui-text-secondary)', children: 'nothing inside those limits' }),
+                  jsx('div', { className: muted, children: 'widen the dates, raise the budget, or switch "anywhere" on' })
+                ]
               })
             : null
         ]
