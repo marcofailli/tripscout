@@ -239,6 +239,7 @@ def _spec(params: dict, *, origins: list[Origin], destinations: list[Destination
         currency=str(params.get("currency") or "EUR"),
         language=str(params.get("language") or "it"),
         max_requests=_int(params.get("max_requests"), 80),
+        max_options=max(1, _int(params.get("max_options"), 40)),
         top=max(1, _int(params.get("top"), 10)),
         min_interval=_num(params.get("min_interval"), 1.0),
         cache_ttl_hours=_num(params.get("cache_ttl_hours"), 12.0),

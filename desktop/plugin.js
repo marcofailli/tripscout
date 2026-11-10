@@ -99,7 +99,7 @@ function TripscoutPane() {
   const [presets, setPresets] = useState(null)
   const [home, setHome] = useState('Prato')
   const [picked, setPicked] = useState([])
-  const [anywhere, setAnywhere] = useState(true)
+  const [mode, setMode] = useState('anywhere') // cheapest | anywhere | picked
   const [destFilter, setDestFilter] = useState('')
   const [nightsMin, setNightsMin] = useState(2)
   const [nightsMax, setNightsMax] = useState(4)
@@ -169,7 +169,7 @@ function TripscoutPane() {
   }, [allCities, destFilter])
 
   const togglePicked = useCallback(name => {
-    setAnywhere(false)
+    setMode('picked')
     setPicked(current =>
       current.includes(name) ? current.filter(c => c !== name) : [...current, name].slice(0, 12)
     )
@@ -202,11 +202,12 @@ function TripscoutPane() {
       setError('write where you are leaving from')
       return
     }
-    if (!anywhere && !picked.length) {
-      setError('pick a destination, or switch "anywhere" on')
+    if (mode === 'picked' && !picked.length) {
+      setError('pick a destination, or switch "anywhere" or "cheapest" on')
       return
     }
-    const destinationList = anywhere ? shortlist() : picked
+    const destinationList =
+      mode === 'cheapest' ? allCities.map(city => city.city) : mode === 'anywhere' ? shortlist() : picked
     if (!destinationList.length) {
       setError('the city list did not load — reopen the pane')
       return
@@ -231,6 +232,13 @@ function TripscoutPane() {
       min_interval: 0.8
     }
     if (budget.trim()) params.budget_total = Number(budget)
+    if (mode === 'cheapest') {
+      // poche date campionate su tutta la finestra × tutte le città: così il
+      // confronto è fra destinazioni, non fra il primo giorno disponibile
+      params.max_options = 2
+      params.max_requests = 150
+      params.min_interval = 0.6
+    }
     try {
       setJob({ status: 'running', elapsed_seconds: 0 })
       const started = await API.rest('/search', { method: 'POST', body: params })
@@ -239,7 +247,7 @@ function TripscoutPane() {
       setError(String(err && err.message ? err.message : err))
       setJob(null)
     }
-  }, [home, picked, anywhere, shortlist, dateFrom, dateTo, nightsMin, nightsMax, lodging, estimates, adults, budget])
+  }, [home, picked, mode, shortlist, allCities, dateFrom, dateTo, nightsMin, nightsMax, lodging, estimates, adults, budget])
 
   const running = jobId !== null
   const result = job && job.result ? job.result : null
@@ -308,7 +316,12 @@ function TripscoutPane() {
       // ---------- dove ----------
       jsx(Section, {
         title: 'where to',
-        aside: anywhere ? `${shortlist().length} cheap-first cities` : picked.length ? `${picked.length} picked` : 'nothing picked',
+        aside:
+          mode === 'cheapest'
+            ? `all ${allCities.length} cities`
+            : mode === 'anywhere'
+              ? `${shortlist().length} cheap-first cities`
+              : picked.length ? `${picked.length} picked` : 'nothing picked',
         children: jsxs('div', {
           className: 'flex flex-col gap-1.5',
           children: [
@@ -316,10 +329,19 @@ function TripscoutPane() {
               className: 'flex items-center gap-1.5',
               children: [
                 jsx(Chip, {
-                  on: anywhere,
-                  title: 'try a shortlist of cheap-first European cities and let the price decide',
+                  on: mode === 'cheapest',
+                  title: 'compare every known city and keep the cheapest whole trip',
                   onClick: () => {
-                    setAnywhere(true)
+                    setMode('cheapest')
+                    setPicked([])
+                  },
+                  children: 'cheapest'
+                }),
+                jsx(Chip, {
+                  on: mode === 'anywhere',
+                  title: 'a shorter shortlist of cheap-first cities, faster than cheapest',
+                  onClick: () => {
+                    setMode('anywhere')
                     setPicked([])
                   },
                   children: 'anywhere'
@@ -339,7 +361,7 @@ function TripscoutPane() {
                   jsx(
                     Chip,
                     {
-                      on: !anywhere && picked.includes(city.city),
+                      on: mode === 'picked' && picked.includes(city.city),
                       title: `${city.country} · ${city.airports.join(' / ')} · town transfer ${city.transfer_cost}`,
                       onClick: () => togglePicked(city.city),
                       children: city.city

@@ -120,7 +120,17 @@ async def start_search(body: dict[str, Any]) -> dict[str, Any]:
         else ([str(raw_destinations)] if raw_destinations else [])
     )
     wants_any = not picked or any(name.strip().casefold() in ("any", "no matter", "*") for name in picked)
-    if wants_any:
+    wants_cheapest = any(name.strip().casefold() in ("cheapest", "cheap") for name in picked)
+    if wants_cheapest:
+        # "cheapest": nessuna rosa ristretta, tutte le città conosciute e poche
+        # date campionate su tutta la finestra, così il confronto è fra città e
+        # non fra il primo giorno disponibile.
+        params["destinations"] = [c.as_destination() for c in cities.all_cities()]
+        params["destinations_mode"] = "cheapest"
+        params.setdefault("max_options", 2)
+        params.setdefault("max_requests", 150)
+        params.setdefault("min_interval", 0.6)
+    elif wants_any:
         limit = params.get("max_destinations") or 8
         try:
             limit = max(1, min(12, int(limit)))

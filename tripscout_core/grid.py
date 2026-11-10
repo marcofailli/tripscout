@@ -73,7 +73,14 @@ def trips(
                     found.append(Trip(depart=day, ret=ret, nights=nights))
         day += timedelta(days=1)
     found.sort(key=lambda t: (t.depart, t.nights))
-    return found[: max(1, int(max_options))]
+    limit = max(1, int(max_options))
+    if len(found) <= limit:
+        return found
+    # Campionamento uniforme su tutta la finestra: prendere le prime N
+    # guarderebbe solo l'inizio, e con poche date per città il "più economico"
+    # sarebbe in realtà "il più vicino".
+    step = len(found) / limit
+    return [found[min(len(found) - 1, int(index * step))] for index in range(limit)]
 
 
 def weekend_windows(count: int = 2, *, today: date | None = None,
