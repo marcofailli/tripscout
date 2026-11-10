@@ -197,6 +197,105 @@ def test_total_costs_include_every_line() -> None:
         optimizer.search_stays, optimizer.cheapest_flight = original_hotels, original_flights
 
 
+def test_classify_lodging_from_google_types() -> None:
+    from tripscout_core.hotels import classify
+
+    # ostello vince su hotel: a&o e MEININGER sono marcati entrambi
+    assert classify(["hotel", "hostel", "youth_hostel"]) == "hostel"
+    assert classify(["hostel"]) == "hostel"
+    assert classify(["hotel"]) == "hotel"
+    assert classify(["capsule_hotel"]) == "hotel"
+    assert classify(["motel", "cafe"]) == "hotel"
+    assert classify(["extended_stay_hotel"]) == "apartment"
+    # solo etichette non residenziali -> non è un alloggio
+    assert classify(["bar", "sports_bar"]) == "other"
+    # i vacation rentals non portano gcid: sono appartamenti per costruzione
+    assert classify([], rentals_mode=True) == "apartment"
+    assert classify([], rentals_mode=False) == "other"
+
+
+def test_parse_lodging_aliases() -> None:
+    from tripscout_core.hotels import _parse_lodging
+
+    assert _parse_lodging(None) == {"any"}
+    assert _parse_lodging("hostel") == {"hostel"}
+    assert _parse_lodging(["Ostelli", "appartamenti"]) == {"hostel", "apartment"}
+    assert _parse_lodging(["hotel", "qualsiasi"]) == {"any"}
+    assert _parse_lodging("albergo") == {"hotel"}
+    assert _parse_lodging("roba strana") == {"any"}
+
+
+def test_estimates_days_and_rates() -> None:
+    from tripscout_core.estimates import estimate_stay
+
+    # giorni di presenza = notti + 1
+    est = estimate_stay(city="Vienna", country="AT", nights=2, adults=1)
+    assert est.days == 3
+    assert est.food_per_day == 26.0  # Austria
+    assert est.food_total == 78.0
+    assert est.activities_total == 30.0  # 10/giorno * 3
+    assert est.total == 108.0
+
+    # override esplicito dell'utente
+    est2 = estimate_stay(city="Vienna", country="AT", nights=1, adults=2,
+                         food_per_day=15.0, activities_per_day=0.0)
+    assert est2.days == 2
+    assert est2.food_total == 60.0  # 15 * 2 giorni * 2 persone
+    assert est2.activities_total == 0.0
+    assert "utente" in est2.basis
+
+    # una città più cara del paese viene trattata come tale
+    est3 = estimate_stay(city="Zurigo", country="CH", nights=1)
+    assert est3.food_per_day > 42.0
+
+
+def test_sweep_passes_lodging_and_adds_estimates() -> None:
+    """Il filtro alloggio arriva alla ricerca hotel; le stime si aggiungono a parte."""
+    seen: dict = {}
+
+    def fake_hotels(session, city, check_in, check_out, **kwargs):
+        seen["lodging"] = kwargs.get("lodging")
+        return [Stay(name="Ostello", total_price=200, price_text="200 €", kind="hostel")]
+
+    class FakeOffer:
+        price = 60.0
+        airlines = ["Wizz"]
+        stops = 0
+        departure = "2026-11-19 07:00"
+        arrival = "2026-11-19 09:00"
+
+    original_hotels, original_flights = optimizer.search_stays, optimizer.cheapest_flight
+    optimizer.search_stays = fake_hotels
+    optimizer.cheapest_flight = lambda *a, **k: FakeOffer()
+    try:
+        spec = optimizer.Spec(
+            origins=[optimizer.Origin(city="Bologna", airports=["BLQ"], access_cost=18.0)],
+            destinations=[optimizer.Destination(city="Vienna", airports=["VIE"],
+                                               country="AT", transfer_cost=4.0)],
+            window_start=date(2026, 11, 19),
+            window_end=date(2026, 11, 20),
+            nights_min=1,
+            nights_max=1,
+            weekdays={3},
+            adults=1,
+            lodging={"hostel"},
+            estimates=True,
+        )
+        result = optimizer.sweep(spec)
+        assert seen["lodging"] == {"hostel"}
+        best = result.options[0]
+        assert best.lodging_kind == "hostel"
+        assert best.estimate is not None
+        # volo 60 + hotel 200 + adduzione 18 + transfer 8 = 286
+        assert abs(best.total - 286.0) < 0.01
+        # notti 1 -> 2 giorni: cibo 26*2=52, attrazioni 10*2=20
+        assert abs(best.estimate["food_total"] - 52.0) < 0.01
+        assert abs(best.estimate["activities_total"] - 20.0) < 0.01
+        assert abs(best.total_with_estimates - (286.0 + 72.0)) < 0.01
+    finally:
+        optimizer.search_stays, optimizer.cheapest_flight = original_hotels, original_flights
+
+
 def main() -> int:
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_")]
     failures = 0

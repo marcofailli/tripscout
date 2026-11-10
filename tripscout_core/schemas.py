@@ -127,6 +127,32 @@ SEARCH = {
             },
             "top": {"type": "integer", "description": "Quante opzioni restituire. Default 10."},
             "max_stops": {"type": "integer", "description": "Scali massimi per tratta. 0 = solo diretti."},
+            "lodging": {
+                "type": "array",
+                "items": {"type": "string", "enum": ["hotel", "hostel", "apartment", "any"]},
+                "description": (
+                    "Tipi di alloggio ammessi: 'hostel' per spendere poco, 'apartment' per una "
+                    "casa intera o una stanza privata, 'hotel' per alberghi (capsule e motel "
+                    "inclusi), 'any' per tutto. Default 'any'. La categoria viene dai dati di "
+                    "Google (gcid), non dal nome della struttura."
+                ),
+            },
+            "estimates": {
+                "type": "boolean",
+                "description": (
+                    "Se true, aggiunge a ogni opzione una stima indicativa di cibo e attrazioni "
+                    "per i giorni di presenza, e un secondo totale che le include. Le stime non "
+                    "cambiano la classifica, che resta sul costo prenotabile."
+                ),
+            },
+            "food_per_day": {
+                "type": "number",
+                "description": "Cibo a persona al giorno, se vuoi imporlo invece della tabella per paese.",
+            },
+            "activities_per_day": {
+                "type": "number",
+                "description": "Biglietti/attrazioni a persona al giorno, se vuoi imporli.",
+            },
             **_COMMON,
         },
         "required": ["origins", "destinations"],
@@ -160,6 +186,21 @@ PRICE_TRIP = {
             "depart": {"type": "string", "description": "Data di andata, YYYY-MM-DD."},
             "ret": {"type": "string", "description": "Data di ritorno, YYYY-MM-DD."},
             "max_stops": {"type": "integer", "description": "Scali massimi per tratta."},
+            "country": {
+                "type": "string",
+                "description": "Paese ISO-2 (es. 'AT'): serve alle stime di cibo e attrazioni.",
+            },
+            "lodging": {
+                "type": "array",
+                "items": {"type": "string", "enum": ["hotel", "hostel", "apartment", "any"]},
+                "description": "Tipi di alloggio ammessi. Default 'any'.",
+            },
+            "estimates": {
+                "type": "boolean",
+                "description": "Aggiunge la stima di cibo e attrazioni e il totale che le include.",
+            },
+            "food_per_day": {"type": "number", "description": "Cibo a persona al giorno, imposto."},
+            "activities_per_day": {"type": "number", "description": "Attrazioni a persona al giorno, imposte."},
             **_COMMON,
         },
         "required": ["origin_airport", "dest_city", "dest_airport", "depart", "ret"],

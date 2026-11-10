@@ -46,10 +46,70 @@ class Stay:
     currency: str = "EUR"
     nightly_text: str = ""
     address: str = ""
+    kind: str = "other"
+    gcids: list[str] = field(default_factory=list)
 
     @property
     def usable(self) -> bool:
         return self.total_price is not None
+
+
+# Tipi di alloggio che l'utente può chiedere. `any` non filtra.
+LODGING_TYPES = ("hotel", "hostel", "apartment", "any")
+
+# Da `gcid:` di Google alla nostra categoria. L'ordine conta: una struttura
+# marcata sia `hotel` sia `hostel` (a&o, MEININGER) è un ostello.
+_HOSTEL_GCID = {"hostel", "youth_hostel"}
+_APARTMENT_GCID = {
+    "apartment_building",
+    "apartment_complex",
+    "vacation_rental",
+    "guest_house",
+    "extended_stay_hotel",
+    "serviced_accommodation",
+}
+_HOTEL_GCID = {"hotel", "motel", "resort_hotel", "capsule_hotel", "inn", "lodging"}
+# Etichette che non descrivono un alloggio: se sono le uniche, il record va scartato.
+_NOT_LODGING_GCID = {"bar", "sports_bar", "cafe", "restaurant", "event_venue", "night_club"}
+
+
+def _gcids(record: list) -> list[str]:
+    """Tutti i `gcid:` del record (Google li annida variamente)."""
+    found: list[str] = []
+
+    def walk(node) -> None:
+        if isinstance(node, str):
+            if node.startswith("gcid:"):
+                found.append(node[5:])
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+        elif isinstance(node, dict):
+            for value in node.values():
+                walk(value)
+
+    walk(record)
+    return found
+
+
+def classify(gcids: list[str], *, rentals_mode: bool = False) -> str:
+    """hotel | hostel | apartment | other.
+
+    I risultati della modalità "vacation rentals" non portano `gcid`: sono
+    appartamenti e stanze private per costruzione.
+    """
+    if not gcids:
+        return "apartment" if rentals_mode else "other"
+    present = set(gcids)
+    if present & _HOSTEL_GCID:
+        return "hostel"
+    if present & _APARTMENT_GCID:
+        return "apartment"
+    if present & _HOTEL_GCID:
+        return "hotel"
+    if present and present <= _NOT_LODGING_GCID:
+        return "other"
+    return "other"
 
 
 def _dates_slot(check_in: date, check_out: date) -> list:
@@ -210,7 +270,7 @@ def _collect(obj, found: list) -> None:
             _collect(value, found)
 
 
-def parse_stays(text: str, *, currency: str = "EUR") -> list[Stay]:
+def parse_stays(text: str, *, currency: str = "EUR", rentals_mode: bool = False) -> list[Stay]:
     if "unusual traffic" in text.casefold() or "/sorry/" in text.casefold():
         from tripscout_core.net import GoogleBlocked
 
@@ -222,6 +282,7 @@ def parse_stays(text: str, *, currency: str = "EUR") -> list[Stay]:
     for record in records:
         total = _stay_total(record)
         name = record[1].strip()
+        gcids = _gcids(record)
         stays.append(
             Stay(
                 name=name,
@@ -230,10 +291,33 @@ def parse_stays(text: str, *, currency: str = "EUR") -> list[Stay]:
                 currency=currency,
                 nightly_text=_nightly(record),
                 address=_address(record),
+                kind=classify(gcids, rentals_mode=rentals_mode),
+                gcids=gcids,
             )
         )
     stays.sort(key=lambda s: (s.total_price is None, s.total_price or 0))
     return stays
+
+
+def _parse_lodging(lodging) -> set[str]:
+    """Normalizza la richiesta dell'utente in un set di categorie."""
+    if not lodging:
+        return {"any"}
+    if isinstance(lodging, str):
+        lodging = [lodging]
+    wanted: set[str] = set()
+    for value in lodging:
+        key = str(value).strip().casefold()
+        if key in ("any", "all", "tutti", "qualsiasi", "indifferente"):
+            return {"any"}
+        if key in ("apartment", "apartments", "appartamento", "appartamenti",
+                   "flat", "rental", "vacation_rental", "casa"):
+            wanted.add("apartment")
+        elif key in ("hostel", "hostels", "ostello", "ostelli"):
+            wanted.add("hostel")
+        elif key in ("hotel", "hotels", "albergo", "alberghi", "b&b"):
+            wanted.add("hotel")
+    return wanted or {"any"}
 
 
 def search_stays(
@@ -241,9 +325,47 @@ def search_stays(
     location: str,
     check_in: date,
     check_out: date,
+    *,
+    lodging=None,
     **kwargs,
 ) -> list[Stay]:
-    """Strutture per `location` e quelle date, dalla più economica."""
+    """Strutture per `location` e quelle date, dalla più economica.
+
+    Gli hotel e gli ostelli arrivano dalla stessa ricerca; gli appartamenti da
+    una seconda ricerca (Google li espone come "vacation rentals"), quindi
+    chiederli costa una richiesta in più per città e data.
+    """
+    wanted = _parse_lodging(lodging)
     currency = kwargs.get("currency", "EUR")
-    url, body = build_request(location, check_in, check_out, **kwargs)
-    return parse_stays(session.post(url, body=body, headers=HEADERS).text, currency=currency)
+    kwargs.pop("entire_home", None)
+    want_serviced = "any" in wanted or bool(wanted & {"hotel", "hostel"})
+    want_apartments = "any" in wanted or "apartment" in wanted
+
+    stays: list[Stay] = []
+    if want_serviced:
+        url, body = build_request(location, check_in, check_out, entire_home=False, **kwargs)
+        stays.extend(
+            parse_stays(
+                session.post(url, body=body, headers=HEADERS).text,
+                currency=currency,
+                rentals_mode=False,
+            )
+        )
+    if want_apartments:
+        url, body = build_request(location, check_in, check_out, entire_home=True, **kwargs)
+        stays.extend(
+            parse_stays(
+                session.post(url, body=body, headers=HEADERS).text,
+                currency=currency,
+                rentals_mode=True,
+            )
+        )
+
+    allowed = None if "any" in wanted else wanted
+    usable = [
+        stay
+        for stay in stays
+        if stay.usable and (allowed is None or stay.kind in allowed)
+    ]
+    usable.sort(key=lambda stay: stay.total_price or 0)
+    return usable

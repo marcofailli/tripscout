@@ -1,5 +1,5 @@
 name: tripscout
-version: 0.1.0
+version: 0.2.0
 description: "Cheap city-break finder: prices flights AND hotels together across a date window, adds the ground cost of reaching each departure airport, and ranks whole trips by total cost."
 author: Marco
 license: MIT

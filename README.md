@@ -20,6 +20,8 @@ dates.
 | **Ground access per airport** | Each departure airport carries an access cost (train, bus, parking, fuel, return). That is what makes Bologna, Florence and Pisa actually comparable instead of nominally comparable. |
 | **Budget-driven pruning** | If the cheapest suitable hotel plus the cheapest possible ground access already breaks your budget, the flight requests for that combination are never made. Exploration is spent where it can still win. |
 | **Total-cost ranking** | The answer is one number per option — flight × travellers + stay + access + airport transfer — with the breakdown, so you can see whether a city is expensive because of the flight or the bed. |
+| **Lodging types** | Restrict to `hostel`, `hotel` or `apartment`. The category comes from Google's own entity type (`gcid:`), not from the property's name, so a hostel branded "hotel" is still a hostel. |
+| **Daily cost estimate** | Optionally add approximate food and attraction money for the days you are there, as a second total that never contaminates the bookable one. |
 | **Local price history** | Every observation is recorded. "Is 144 € good for a Thursday-to-Saturday in Budapest in November?" becomes a question with an answer. |
 
 ## Install
@@ -73,6 +75,44 @@ Vienna (AT)    2026-11-20 → 2026-11-22 (2 notti)  from Bologna BLQ 255 EUR
 
 `max_requests` is a real budget: the sweep stops when it runs out and says the answer
 is partial rather than pretending it finished.
+
+### Lodging: hotels, hostels, apartments
+
+`lodging` restricts what counts as a bed. `["hostel"]` is the cheap-weekend answer:
+
+```jsonc
+{"lodging": ["hostel"], "estimates": true}
+```
+
+```text
+Budapest (HU)  2026-11-19 → 2026-11-21 (2 notti)  from Pisa PSA   192 EUR  [hostel]
+               Budapest Party Hostel at U…   prenotabile 192 + cibo 54 + attrazioni 21 = 267 EUR
+Vienna (AT)    2026-11-19 → 2026-11-21 (2 notti)  from Bologna BLQ 247 EUR  [hostel]
+               Suburb Hostel                 prenotabile 247 + cibo 78 + attrazioni 30 = 355 EUR
+```
+
+The category is read from Google's entity type on each result (`gcid:hostel`,
+`gcid:capsule_hotel`, `gcid:motel`, …), not guessed from the name — which matters,
+because chains like a&o and MEININGER call themselves hotels while being hostels.
+Apartments come from a *second* query: Google exposes them under "vacation rentals", so
+asking for `apartment` costs one extra request per city and date. Hotels and hostels
+arrive together from a single query.
+
+### Food and attractions (optional, approximate)
+
+`estimates: true` adds, per option, what eating and getting into places roughly costs:
+
+| | |
+|---|---|
+| **food** | per person per day, from a per-country table (Poland 16, Hungary 18, Czechia 20, Austria 26, Norway 44 …) with a few dearer cities overridden |
+| **attractions** | per person per day, per country (default 9) |
+| **days** | nights + 1 — you eat lunch on the day you land and on the day you leave |
+
+Both can be overridden with `food_per_day` and `activities_per_day`. The estimate is
+deliberately a cheap-travel budget: breakfast and lunch at a bar or supermarket, one
+simple dinner, one paid attraction a day. It **never** enters the ranking or the
+`budget_total` check — `total` stays the bookable cost and `total_with_estimates` is the
+honest all-in figure next to it. Nothing here is a quote; the tool says so in its notes.
 
 ### `tripscout_price_trip`
 

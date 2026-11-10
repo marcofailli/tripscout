@@ -17,6 +17,7 @@ from datetime import date
 from typing import Any, Callable
 
 from tripscout_core import store
+from tripscout_core.estimates import estimate_stay
 from tripscout_core.flights import cheapest as cheapest_flight
 from tripscout_core.grid import Trip
 from tripscout_core.grid import trips as build_trips
@@ -67,6 +68,12 @@ class Spec:
     min_interval: float = 1.0
     cache_ttl_hours: float = 12.0
     max_stops: int | None = None
+    # Categorie di alloggio ammesse: hotel, hostel, apartment, any.
+    lodging: set[str] = field(default_factory=lambda: {"any"})
+    # Stime facoltative di cibo e attrazioni, tenute separate dal totale prenotabile.
+    estimates: bool = False
+    food_per_day: float | None = None
+    activities_per_day: float | None = None
 
 
 @dataclass(slots=True)
@@ -94,6 +101,9 @@ class Option:
     flight_departure: str = ""
     flight_arrival: str = ""
     from_cache: bool = False
+    lodging_kind: str = "other"
+    estimate: dict[str, Any] | None = None
+    total_with_estimates: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -144,11 +154,12 @@ def hotel_cache_key(
     adults: int,
     rooms: int,
     currency: str,
+    lodging: str = "any",
 ) -> str:
-    """Chiave di cache di un soggiorno: una per città e date, non per aeroporto."""
+    """Chiave di cache di un soggiorno: una per città, date e tipo di alloggio."""
     return (
         f"{city.casefold()}:{depart.isoformat()}:{ret.isoformat()}:"
-        f"a{adults}:r{rooms}:{currency}"
+        f"a{adults}:r{rooms}:{currency}:{lodging}"
     )
 
 
@@ -163,7 +174,15 @@ def _hotel_key(city: str, trip: Trip, spec: Spec) -> str:
     return hotel_cache_key(
         city, trip.depart, trip.ret,
         adults=spec.adults, rooms=spec.rooms, currency=spec.currency,
+        lodging=lodging_key(spec.lodging),
     )
+
+
+def lodging_key(lodging: set[str] | None) -> str:
+    """Forma stabile delle categorie richieste, per la chiave di cache."""
+    if not lodging or "any" in lodging:
+        return "any"
+    return "+".join(sorted(lodging))
 
 
 def sweep(
@@ -212,17 +231,19 @@ def sweep(
                 cheapest_stay = blob or None
             else:
                 try:
+                    before_requests = session.requests
                     stays = search_stays(
                         session,
                         destination.city,
                         trip.depart,
                         trip.ret,
+                        lodging=spec.lodging,
                         currency=spec.currency,
                         language=spec.language,
                         adults=max(2, spec.adults),
                         rooms=spec.rooms,
                     )
-                    hotels_fetched += 1
+                    hotels_fetched += max(1, session.requests - before_requests)
                     affordable = [s for s in stays if s.usable]
                     cheapest_stay = asdict(affordable[0]) if affordable else None
                     store.put("hotel", hkey, cheapest_stay)
@@ -259,7 +280,21 @@ def sweep(
                     pruned += 1
                     continue
 
-            # 3. voli: per ogni aeroporto di partenza, e per ogni aeroporto di
+            # 3. stime facoltative di cibo e attrazioni (informative, non entrano
+            #    nel totale prenotabile né nella classifica).
+            estimate = None
+            if spec.estimates:
+                estimate = estimate_stay(
+                    city=destination.city,
+                    country=destination.country,
+                    nights=trip.nights,
+                    adults=spec.adults,
+                    currency=spec.currency,
+                    food_per_day=spec.food_per_day,
+                    activities_per_day=spec.activities_per_day,
+                )
+
+            # 4. voli: per ogni aeroporto di partenza, e per ogni aeroporto di
             #    arrivo si tiene solo la combinazione migliore.
             for origin in spec.origins:
                 for origin_airport in origin.airports:
@@ -341,6 +376,11 @@ def sweep(
                             flight_departure=str(offer.get("departure") or ""),
                             flight_arrival=str(offer.get("arrival") or ""),
                             from_cache=cached is not None,
+                            lodging_kind=str(cheapest_stay.get("kind") or "other"),
+                            estimate=estimate.as_dict() if estimate else None,
+                            total_with_estimates=(
+                                round(total + estimate.total, 2) if estimate else None
+                            ),
                         )
                         key = (destination.city, trip.label)
                         previous = best_by_dest.get(key)
@@ -407,6 +447,7 @@ def price_one(
         dest_city,
         depart,
         ret,
+        lodging=spec.lodging,
         currency=spec.currency,
         language=spec.language,
         adults=max(2, spec.adults),
@@ -428,6 +469,18 @@ def price_one(
     flight_price = float(offer.price) if offer.usable else 0.0
     access_total = access_cost * spec.adults
     transfer_total = transfer_cost * 2 * spec.adults
+    booked_total = flight_price * spec.adults + hotel_total + access_total + transfer_total
+    estimate = None
+    if spec.estimates:
+        estimate = estimate_stay(
+            city=dest_city,
+            country=spec.destinations[0].country if spec.destinations else "",
+            nights=trip.nights,
+            adults=spec.adults,
+            currency=spec.currency,
+            food_per_day=spec.food_per_day,
+            activities_per_day=spec.activities_per_day,
+        )
     return {
         "trip": {
             "origin_city": origin_city or origin_airport,
@@ -449,9 +502,11 @@ def price_one(
         },
         "hotel": {
             "name": affordable[0].name if affordable else None,
+            "kind": affordable[0].kind if affordable else None,
             "stay_total": hotel_total or None,
             "alternatives": [
-                {"name": s.name, "stay_total": s.total_price} for s in affordable[1:6]
+                {"name": s.name, "kind": s.kind, "stay_total": s.total_price}
+                for s in affordable[1:6]
             ],
         },
         "breakdown": {
@@ -459,8 +514,12 @@ def price_one(
             "hotel_total": hotel_total,
             "access_total": access_total,
             "airport_transfer_total": transfer_total,
-            "total": flight_price * spec.adults + hotel_total + access_total + transfer_total,
+            "total": booked_total,
+            "total_with_estimates": (
+                round(booked_total + estimate.total, 2) if estimate else None
+            ),
         },
+        "estimate": estimate.as_dict() if estimate else None,
         "currency": spec.currency,
         "requests_spent": session.requests,
     }

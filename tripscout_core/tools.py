@@ -63,6 +63,23 @@ def _int(value: Any, default: int) -> int:
         return default
 
 
+def _opt_num(value: Any) -> float | None:
+    """Numero facoltativo: None quando non è stato dato (non 0)."""
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _lodging(value: Any) -> set[str]:
+    """Categorie di alloggio richieste; default 'any'."""
+    from tripscout_core.hotels import _parse_lodging
+
+    return _parse_lodging(value)
+
+
 def _origins(raw: Any) -> list[Origin]:
     out: list[Origin] = []
     for item in _as_list(raw):
@@ -132,6 +149,10 @@ def _spec(params: dict, *, origins: list[Origin], destinations: list[Destination
         max_stops=(
             _int(params.get("max_stops"), 99) if params.get("max_stops") is not None else None
         ),
+        lodging=_lodging(params.get("lodging")),
+        estimates=bool(params.get("estimates")),
+        food_per_day=_opt_num(params.get("food_per_day")),
+        activities_per_day=_opt_num(params.get("activities_per_day")),
     )
 
 
@@ -146,8 +167,11 @@ def _line(option: Option) -> dict[str, Any]:
         "flight": round(option.flight_total, 2),
         "hotel": round(option.hotel_total, 2),
         "hotel_name": option.hotel_name,
+        "lodging_kind": option.lodging_kind,
         "access": round(option.access_total, 2),
         "airport_transfer": round(option.transfer_total, 2),
+        "total_with_estimates": option.total_with_estimates,
+        "estimate": option.estimate,
         "breakdown_text": (
             f"volo {option.flight_total:.0f} + hotel {option.hotel_total:.0f} "
             f"({option.hotel_name}) + adduzione {option.access_total:.0f} + "
@@ -220,6 +244,19 @@ def search(params: dict | None = None, **_kwargs: Any) -> str:
         "I prezzi hotel sono totali del soggiorno per le date indicate, non per notte; "
         "il volo è per persona."
     )
+    if spec.estimates:
+        from tripscout_core.estimates import ESTIMATE_DISCLAIMER
+
+        notes.append(ESTIMATE_DISCLAIMER)
+        notes.append(
+            "La classifica usa il totale prenotabile (volo, alloggio, adduzione, transfer): "
+            "'total_with_estimates' aggiunge cibo e attrazioni ma non cambia l'ordine."
+        )
+    if "any" not in spec.lodging:
+        notes.append(
+            "Alloggio filtrato su: " + ", ".join(sorted(spec.lodging))
+            + ". Gli appartamenti costano una richiesta in più per città e data."
+        )
 
     out: dict[str, Any] = {
         "method": (
@@ -236,6 +273,8 @@ def search(params: dict | None = None, **_kwargs: Any) -> str:
             "rooms": spec.rooms,
             "budget_total": spec.budget_total,
             "currency": spec.currency,
+            "lodging": sorted(spec.lodging),
+            "estimates": spec.estimates,
         },
         "best": _line(result.options[0]) if result.options else None,
         "options": [_line(o) for o in result.options],
@@ -273,6 +312,7 @@ def price_trip(params: dict | None = None, **_kwargs: Any) -> str:
                          airports=[origin_airport],
                          access_cost=_num(params.get("access_cost")))],
         destinations=[Destination(city=dest_city, airports=[dest_airport],
+                                  country=str(params.get("country") or ""),
                                   transfer_cost=_num(params.get("transfer_cost")))],
         window_start=depart,
         window_end=ret,
