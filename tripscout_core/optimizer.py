@@ -216,10 +216,14 @@ def sweep(
 
     best_by_dest: dict[tuple[str, str], Option] = {}
     stop = False
-    for destination in spec.destinations:
+    # Date all'esterno, destinazioni all'interno: così il budget di richieste
+    # tocca tutte le città prima di approfondire la prima. Con il ciclo inverso
+    # una città con molte combinazioni si mangiava l'intero budget e le altre
+    # non venivano nemmeno prezzate.
+    for trip in trips_list:
         if stop:
             break
-        for trip in trips_list:
+        for destination in spec.destinations:
             if stop:
                 break
             # 1. hotel: una richiesta copre tutte le partenze, e il prezzo si
