@@ -80,6 +80,75 @@ def _lodging(value: Any) -> set[str]:
     return _parse_lodging(value)
 
 
+def _known_cities() -> list[str]:
+    from tripscout_core.origins import known_cities
+
+    return known_cities()
+
+
+def origins(params: dict | None = None, **_kwargs: Any) -> str:
+    """Elenca (o risolve) le città di partenza note, con aeroporti e costi."""
+    params = params or {}
+    from tripscout_core.origins import known_cities, resolve
+
+    city = params.get("city")
+    if city:
+        preset = resolve(city)
+        if preset is None:
+            return _json(
+                {
+                    "error": f"'{city}' is not a known departure city.",
+                    "known_cities": known_cities(),
+                }
+            )
+        return _json(
+            {
+                "city": preset.city,
+                "region": preset.region,
+                "airports": [
+                    {
+                        "airport": a.airport,
+                        "airport_city": a.airport_city,
+                        "access_cost": a.access_cost,
+                        "how": a.how,
+                    }
+                    for a in preset.airports
+                ],
+                "origins_param": preset.as_origins(),
+                "note": (
+                    "access_cost is per person, return trip, and is an estimate for cheap "
+                    "travel (train, bus, shuttle). Override it by passing 'origins' yourself."
+                ),
+            }
+        )
+
+    cities = []
+    for name in known_cities():
+        preset = resolve(name)
+        if preset is None:
+            continue
+        cities.append(
+            {
+                "city": preset.city,
+                "region": preset.region,
+                "airports": [
+                    {"airport": a.airport, "access_cost": a.access_cost}
+                    for a in preset.airports
+                ],
+            }
+        )
+    return _json(
+        {
+            "count": len(cities),
+            "cities": cities,
+            "note": (
+                "Pass one of these as 'home' in tripscout_search and the departure airports "
+                "and their ground costs are filled in automatically."
+            ),
+        }
+    )
+
+
 def _origins(raw: Any) -> list[Origin]:
     out: list[Origin] = []
     for item in _as_list(raw):
@@ -101,10 +170,23 @@ def _origins(raw: Any) -> list[Origin]:
 
 
 def _destinations(raw: Any) -> list[Destination]:
+    from tripscout_core.cities import resolve as resolve_city
+
     out: list[Destination] = []
     for item in _as_list(raw):
         if isinstance(item, str):
-            out.append(Destination(city=item, airports=[]))
+            preset = resolve_city(item)
+            if preset is not None:
+                out.append(
+                    Destination(
+                        city=preset.city,
+                        airports=list(preset.airports),
+                        country=preset.country,
+                        transfer_cost=preset.transfer_cost,
+                    )
+                )
+            else:
+                out.append(Destination(city=item, airports=[]))
             continue
         if not isinstance(item, dict):
             continue
@@ -114,12 +196,21 @@ def _destinations(raw: Any) -> list[Destination]:
         ]
         if not city:
             continue
+        country = str(item.get("country") or "")
+        transfer = _num(item.get("transfer_cost"))
+        if not airports or not country:
+            # nome città noto -> aeroporti, paese e transfer dalla tabella
+            preset = resolve_city(city)
+            if preset is not None:
+                airports = airports or list(preset.airports)
+                country = country or preset.country
+                transfer = transfer or preset.transfer_cost
         out.append(
             Destination(
                 city=city,
                 airports=airports,
-                country=str(item.get("country") or ""),
-                transfer_cost=_num(item.get("transfer_cost")),
+                country=country,
+                transfer_cost=transfer,
             )
         )
     return out
@@ -189,9 +280,26 @@ def search(params: dict | None = None, **_kwargs: Any) -> str:
     """Ricerca congiunta su tutta la griglia."""
     params = params or {}
     origins = _origins(params.get("origins"))
+    resolved_from = ""
+    if not origins:
+        from tripscout_core.origins import resolve
+
+        preset = resolve(params.get("home") or params.get("from_city"))
+        if preset is not None:
+            origins = _origins(preset.as_origins())
+            resolved_from = preset.city
     destinations = _destinations(params.get("destinations"))
     if not origins:
-        return _json({"error": "at least one departure airport is required in 'origins'."})
+        known = _known_cities()
+        return _json(
+            {
+                "error": (
+                    "no departure airport: pass 'origins' explicitly, or 'home' with a city "
+                    "tripscout knows."
+                    + (f" Known cities: {', '.join(known)}." if known else "")
+                )
+            }
+        )
     if not destinations:
         return _json({"error": "at least one candidate city is required in 'destinations'."})
 
@@ -232,6 +340,14 @@ def search(params: dict | None = None, **_kwargs: Any) -> str:
     result = sweep(spec, session=session)
 
     notes: list[str] = []
+    if resolved_from:
+        detail = "; ".join(
+            f"{o.label} ~{o.access_cost:.0f} {spec.currency}" for o in spec.origins
+        )
+        notes.append(
+            f"Departure resolved from {resolved_from}: {detail}. "
+            "Those ground costs are estimates for cheap travel, not a timetable."
+        )
     if result.partial:
         notes.append(
             "Partial results: " + (result.stopped_because or "search stopped early.")
@@ -275,6 +391,7 @@ def search(params: dict | None = None, **_kwargs: Any) -> str:
             "currency": spec.currency,
             "lodging": sorted(spec.lodging),
             "estimates": spec.estimates,
+            "resolved_from": resolved_from or None,
         },
         "best": _line(result.options[0]) if result.options else None,
         "options": [_line(o) for o in result.options],

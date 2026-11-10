@@ -296,6 +296,59 @@ def test_sweep_passes_lodging_and_adds_estimates() -> None:
         optimizer.search_stays, optimizer.cheapest_flight = original_hotels, original_flights
 
 
+def test_home_city_resolves_to_airports_with_costs() -> None:
+    """'Prato' deve diventare FI/PI/BO con i costi di adduzione, senza che l'utente lo dica."""
+    from tripscout_core.origins import known_cities, resolve
+
+    preset = resolve("Prato")
+    assert preset is not None
+    codes = [a.airport for a in preset.airports]
+    assert codes == ["FLR", "PSA", "BLQ"], codes
+    assert all(a.access_cost > 0 for a in preset.airports)
+
+    origins = preset.as_origins()
+    assert origins[0]["airports"] == ["FLR"]
+    assert isinstance(origins[0]["access_cost"], float)
+
+    # varianti di scrittura
+    assert resolve("prato (po)").city == "Prato"
+    assert resolve("  PRATO ") is not None
+    assert resolve("Firenze") is not None
+    assert resolve("Florence") is not None
+    assert resolve("Atlantide") is None
+    assert resolve("") is None
+
+    cities = known_cities()
+    assert "Prato" in cities and "Milano" in cities and len(cities) >= 20
+
+
+def test_search_with_home_instead_of_origins() -> None:
+    """Passando solo `home` la ricerca parte, e gli aeroporti sono quelli del preset."""
+    from tripscout_core import tools as agent_tools
+
+    captured: dict = {}
+
+    def fake_search(params):
+        captured.update(params)
+        return json.dumps({"ok": True})
+
+    original = agent_tools.sweep
+    agent_tools.sweep = lambda spec, session=None: (_ for _ in ()).throw(AssertionError("no network"))
+    try:
+        # senza origins e senza home: errore esplicito con le città note
+        out = json.loads(agent_tools.search({"destinations": [{"city": "Vienna", "airports": ["VIE"]}]}))
+        assert "error" in out and "Prato" in out["error"]
+    finally:
+        agent_tools.sweep = original
+
+    # e il tool delle partenze risolve una città
+    resolved = json.loads(agent_tools.origins({"city": "Prato"}))
+    assert resolved["city"] == "Prato"
+    assert [a["airport"] for a in resolved["airports"]] == ["FLR", "PSA", "BLQ"]
+    listed = json.loads(agent_tools.origins({}))
+    assert listed["count"] >= 20
+
+
 def main() -> int:
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_")]
     failures = 0

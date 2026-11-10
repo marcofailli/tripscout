@@ -21,6 +21,8 @@ dates.
 | **Budget-driven pruning** | If the cheapest suitable hotel plus the cheapest possible ground access already breaks your budget, the flight requests for that combination are never made. Exploration is spent where it can still win. |
 | **Total-cost ranking** | The answer is one number per option — flight × travellers + stay + access + airport transfer — with the breakdown, so you can see whether a city is expensive because of the flight or the bed. |
 | **Lodging types** | Restrict to `hostel`, `hotel` or `apartment`. The category comes from Google's own entity type (`gcid:`), not from the property's name, so a hostel branded "hotel" is still a hostel. |
+| **City, not airport** | Say `home: "Prato"` and it is resolved to every airport serving it — Florence, Pisa, Bologna — each with the estimated ground cost of getting there and back. 33 departure cities and 49 destinations ship with the plugin. |
+| **A Desktop pane** | The same engine behind a real UI in Hermes Desktop: pick the city you leave from, tap destinations, filter by kind of bed, see each trip's total and breakdown. |
 | **Daily cost estimate** | Optionally add approximate food and attraction money for the days you are there, as a second total that never contaminates the bookable one. |
 | **Local price history** | Every observation is recorded. "Is 144 € good for a Thursday-to-Saturday in Budapest in November?" becomes a question with an answer. |
 
@@ -97,6 +99,42 @@ because chains like a&o and MEININGER call themselves hotels while being hostels
 Apartments come from a *second* query: Google exposes them under "vacation rentals", so
 asking for `apartment` costs one extra request per city and date. Hotels and hostels
 arrive together from a single query.
+
+### Leaving from a city, not an airport
+
+Nobody thinks in IATA codes. Pass the town and the plugin works out the rest:
+
+```jsonc
+{"home": "Prato", "destinations": ["Budapest", "Praga", "Vienna"]}
+```
+
+```text
+Prato resolved to  FLR ~9   PSA ~16   BLQ ~24 EUR  (ground, return)
+```
+
+Thirty-three departure cities ship with it (Prato, Firenze, Pisa, Bologna, Milano, Roma,
+Napoli, Palermo, Torino, Venezia, Bari, Cagliari, Zurigo, Monaco…), each with the
+airports that serve it and a return-trip ground cost per person: the train, the bus, the
+shuttle. That number is what makes three airports comparable at all — the €16 to Pisa is
+part of the trip, not a footnote. Every cost is an estimate for cheap travel and can be
+overridden by passing `origins` yourself. `tripscout_origins` lists them, or resolves one.
+
+Destinations work the same way: `["Vienna"]` is enough, and 49 European cities are
+already mapped to their airports, country and airport-to-town transfer cost. Anything
+outside the table still works — pass `{city, airports, country, transfer_cost}`.
+
+### The Hermes Desktop pane
+
+The plugin also ships a UI half (`desktop/plugin.js` + `dashboard/plugin_api.py`), so the
+same engine is usable without typing a query: a pane where you pick the city you leave
+from, tap destinations by region, choose `any / hostel / hotel / apartment`, set nights
+and a budget ceiling, and press search. Results arrive as a ranked list; click one for
+the line-by-line breakdown and the all-in estimate with food and tickets.
+
+It is the same code path as the tools — the pane calls the engine, not a copy of it — so
+what the UI shows and what the agent answers cannot drift apart. The pane is opt-in: flip
+it on in **Settings → Plugins** after installing (`hermes plugins enable tripscout` for
+the backend half).
 
 ### Food and attractions (optional, approximate)
 

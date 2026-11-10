@@ -94,12 +94,31 @@ SEARCH = {
             "origins": {
                 "type": "array",
                 "items": _ORIGIN,
-                "description": "Departure airports considered; all of them are compared against each other.",
+                "description": (
+                    "Departure airports considered; all of them are compared against each other. "
+                    "Omit this and pass 'home' instead to have them resolved for you."
+                ),
+            },
+            "home": {
+                "type": "string",
+                "description": (
+                    "City the traveller leaves from, e.g. 'Prato' or 'Milano'. When 'origins' is "
+                    "not given, it is resolved to every airport serving that city with its typical "
+                    "ground cost (train/bus/shuttle, return trip), and all of them are compared. "
+                    "This is what lets a user say 'I leave from Prato' without knowing that means "
+                    "Florence, Pisa and Bologna — use it whenever the user names a town rather "
+                    "than an airport."
+                ),
             },
             "destinations": {
                 "type": "array",
                 "items": _DESTINATION,
-                "description": "Candidate cities. Keep it to 4-12: each one costs requests.",
+                "description": (
+                    "Candidate cities. Keep it to 4-12: each one costs requests. Plain city "
+                    "names ('Vienna', 'Praga') are accepted and resolved to their airports, "
+                    "country and airport-to-town transfer cost; pass objects only to override "
+                    "those."
+                ),
             },
             "window_start": {
                 "type": "string",
@@ -166,7 +185,30 @@ SEARCH = {
             },
             **_COMMON,
         },
-        "required": ["origins", "destinations"],
+        "required": ["destinations"],
+    },
+}
+
+ORIGINS = {
+    "name": "tripscout_origins",
+    "description": (
+        "List, or resolve, the departure cities tripscout already knows about — and for each one "
+        "the airports that serve it with the typical ground cost of getting there and back. Use "
+        "it when someone names a town rather than an airport, or to show which home cities "
+        "are supported before running a search. Costs are estimates for cheap travel and can "
+        "always be overridden."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "city": {
+                "type": "string",
+                "description": (
+                    "A single town to resolve, e.g. 'Prato'. Omit it to list every known city."
+                ),
+            },
+        },
+        "required": [],
     },
 }
 

@@ -1,0 +1,7 @@
+{
+  "name": "tripscout",
+  "label": "tripscout",
+  "description": "Cheap weekend trips: flights and lodging priced together, ranked by total cost.",
+  "version": "0.3.0",
+  "api": "plugin_api.py"
+}

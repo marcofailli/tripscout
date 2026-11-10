@@ -29,6 +29,7 @@ def register(ctx) -> None:
         (schemas.SEARCH, tools.search),
         (schemas.PRICE_TRIP, tools.price_trip),
         (schemas.HISTORY, tools.history),
+        (schemas.ORIGINS, tools.origins),
     ):
         ctx.register_tool(
             name=schema["name"],
