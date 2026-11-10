@@ -353,7 +353,7 @@ function TripscoutPane() {
             }),
             jsx('div', {
               className: muted,
-              children: 'every airport serving it, with the train or bus to reach it'
+              children: 'any town on earth: the airports near it are looked up, with the train or bus to reach them'
             })
           ]
         })

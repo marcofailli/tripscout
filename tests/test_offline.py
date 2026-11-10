@@ -369,6 +369,24 @@ def test_booking_links_are_prefilled():
     assert "BUD" in moved and "Budapest" in moved
 
 
+def test_any_place_resolves_to_nearby_airports():
+    from tripscout_core import geo
+
+    assert len(geo.airports()) > 3000
+    # Firenze: la tabella deve mettere FLR fra i primi, senza rete
+    found = geo.nearest(43.7696, 11.2558)
+    codes = [airport.iata for airport, _ in found]
+    assert "FLR" in codes, codes
+    # Prato -> Pisa in linea d'aria ~60 km: la stima deve stare nei preset (16)
+    km = geo.haversine_km(43.8777, 11.0969, 43.6839, 10.3927)
+    cost, how = geo.access_estimate(km)
+    assert 10 <= cost <= 25, (km, cost)
+    assert "estimate" in how
+    # Tokyo: due scali, entrambi a meno di 100 km
+    tokyo = geo.nearest(35.6762, 139.6503)
+    assert {"HND", "NRT"} & {a.iata for a, _ in tokyo}
+
+
 def main() -> int:
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_")]
     failures = 0

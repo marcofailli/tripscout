@@ -222,6 +222,32 @@ def resolve(name: str | None) -> HomePreset | None:
     return None
 
 
+def resolve_any(place: str | None) -> HomePreset | None:
+    """Preset scritto a mano se esiste, altrimenti geocoding + aeroporti vicini.
+
+    È il pezzo che rende la partenza libera: "Agerola" o "Reykjavik" funzionano
+    come "Prato", solo che i costi di adduzione diventano stime sulla distanza.
+    """
+    preset = resolve(place)
+    if preset is not None:
+        return preset
+    if not place or not str(place).strip():
+        return None
+    from tripscout_core import geo
+
+    found = geo.resolve(str(place))
+    if not found:
+        return None
+    return HomePreset(
+        city=found["city"],
+        region="geocoded",
+        airports=[
+            _p(item["airport"], item["airport_city"], item["access_cost"], item["how"])
+            for item in found["airports"]
+        ],
+    )
+
+
 def known_cities() -> list[str]:
     """Elenco ordinato delle città di partenza supportate (senza alias)."""
     seen: dict[str, HomePreset] = {}

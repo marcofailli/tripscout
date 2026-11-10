@@ -310,22 +310,31 @@ def search(params: dict | None = None, **_kwargs: Any) -> str:
     # partenza del viaggio, non la città dell'aeroporto
     home = (params.get("home") or params.get("from_city") or "").strip() or None
     resolved_from = ""
+    origin_note = ""
     if not origins:
-        from tripscout_core.origins import resolve
+        from tripscout_core.origins import resolve_any
 
-        preset = resolve(params.get("home") or params.get("from_city"))
+        preset = resolve_any(home)
         if preset is not None:
             origins = _origins(preset.as_origins())
             resolved_from = preset.city
+            if preset.region == "geocoded":
+                looked = ", ".join(
+                    f"{a.airport_city} ({a.airport}) ~{a.access_cost:.0f} EUR" for a in preset.airports
+                )
+                origin_note = (
+                    f"{preset.city} was looked up on the map: nearest airports with scheduled "
+                    f"flights are {looked}. Ground costs are distance estimates, not timetables."
+                )
     destinations = _destinations(params.get("destinations"))
     if not origins:
         known = _known_cities()
         return _json(
             {
                 "error": (
-                    "no departure airport: pass 'origins' explicitly, or 'home' with a city "
-                    "tripscout knows."
-                    + (f" Known cities: {', '.join(known)}." if known else "")
+                    "departure not understood: pass 'origins' explicitly, or 'home' with a place "
+                    "name — any town on earth works (looked up on OpenStreetMap). "
+                    + (f"Known presets: {', '.join(str(c) for c in known)}." if known else "")
                 )
             }
         )
@@ -369,7 +378,9 @@ def search(params: dict | None = None, **_kwargs: Any) -> str:
     result = sweep(spec, session=session)
 
     notes: list[str] = []
-    if resolved_from:
+    if origin_note:
+        notes.append(origin_note)
+    elif resolved_from:
         detail = "; ".join(
             f"{o.label} ~{o.access_cost:.0f} {spec.currency}" for o in spec.origins
         )
