@@ -41,7 +41,7 @@ def _date(value: Any, *, default: date | None = None, field: str = "data") -> da
         return dt.date.fromisoformat(str(value).strip()[:10])
     except ValueError as exc:
         raise ValueError(
-            f"{field} non valida: {value!r} (serve YYYY-MM-DD)"
+            f"invalid {field or 'date'}: {value!r} (expected YYYY-MM-DD)"
         ) from exc
 
 
@@ -173,8 +173,8 @@ def _line(option: Option) -> dict[str, Any]:
         "total_with_estimates": option.total_with_estimates,
         "estimate": option.estimate,
         "breakdown_text": (
-            f"volo {option.flight_total:.0f} + hotel {option.hotel_total:.0f} "
-            f"({option.hotel_name}) + adduzione {option.access_total:.0f} + "
+            f"flight {option.flight_total:.0f} + stay {option.hotel_total:.0f} "
+            f"({option.hotel_name}, {option.lodging_kind}) + access {option.access_total:.0f} + "
             f"transfer {option.transfer_total:.0f} = {option.total:.0f} {option.currency}"
         ),
         "airlines": option.airlines,
@@ -191,9 +191,9 @@ def search(params: dict | None = None, **_kwargs: Any) -> str:
     origins = _origins(params.get("origins"))
     destinations = _destinations(params.get("destinations"))
     if not origins:
-        return _json({"error": "serve almeno un aeroporto di partenza in 'origins'."})
+        return _json({"error": "at least one departure airport is required in 'origins'."})
     if not destinations:
-        return _json({"error": "serve almeno una città in 'destinations'."})
+        return _json({"error": "at least one candidate city is required in 'destinations'."})
 
     try:
         window_start = _date(params.get("window_start"), field="window_start")
@@ -208,7 +208,7 @@ def search(params: dict | None = None, **_kwargs: Any) -> str:
         default_end = window_start + timedelta(days=21)
     window_end = window_end or default_end
     if window_end < window_start:
-        return _json({"error": "window_end precede window_start."})
+        return _json({"error": "window_end is before window_start."})
 
     spec = _spec(
         params,
@@ -222,7 +222,7 @@ def search(params: dict | None = None, **_kwargs: Any) -> str:
         return _json(
             {
                 "error": (
-                    "ogni destinazione ha bisogno degli aeroporti (IATA) per cercare i voli: "
+                    "every destination needs its airports (IATA) to price flights: "
                     + ", ".join(destinations_missing_airports)
                 )
             }
@@ -234,34 +234,34 @@ def search(params: dict | None = None, **_kwargs: Any) -> str:
     notes: list[str] = []
     if result.partial:
         notes.append(
-            "Risultati parziali: " + (result.stopped_because or "ricerca interrotta.")
+            "Partial results: " + (result.stopped_because or "search stopped early.")
         )
     if result.errors:
-        notes.append(f"{len(result.errors)} richieste non riuscite (dettaglio in 'errors').")
+        notes.append(f"{len(result.errors)} requests failed (details in 'errors').")
     if not result.options:
-        notes.append("Nessuna combinazione utilizzabile: allarga le date, il budget o le città.")
+        notes.append("No usable combination: widen the dates, the budget or the cities.")
     notes.append(
-        "I prezzi hotel sono totali del soggiorno per le date indicate, non per notte; "
-        "il volo è per persona."
+        "Lodging prices are totals for the whole stay on the dates shown, not per night; "
+        "the flight price is per person."
     )
     if spec.estimates:
         from tripscout_core.estimates import ESTIMATE_DISCLAIMER
 
         notes.append(ESTIMATE_DISCLAIMER)
         notes.append(
-            "La classifica usa il totale prenotabile (volo, alloggio, adduzione, transfer): "
-            "'total_with_estimates' aggiunge cibo e attrazioni ma non cambia l'ordine."
+            "The ranking uses the bookable total (flight, stay, airport access, transfer); "
+            "'total_with_estimates' adds food and attractions but does not reorder the list."
         )
     if "any" not in spec.lodging:
         notes.append(
-            "Alloggio filtrato su: " + ", ".join(sorted(spec.lodging))
-            + ". Gli appartamenti costano una richiesta in più per città e data."
+            "Lodging filtered to: " + ", ".join(sorted(spec.lodging))
+            + ". Apartments cost one extra request per city and date."
         )
 
     out: dict[str, Any] = {
         "method": (
-            "Volo e hotel valutati insieme sulle stesse date; totale = volo×persone + "
-            "soggiorno + adduzione aeroporto + transfer in città."
+            "Flights and lodging priced together on the same dates; total = flight×travellers + "
+            "stay + ground access to the airport + airport-to-town transfer."
         ),
         "query": {
             "origins": [o.label for o in spec.origins],
@@ -296,15 +296,15 @@ def price_trip(params: dict | None = None, **_kwargs: Any) -> str:
     except ValueError as exc:
         return _json({"error": str(exc)})
     if not depart or not ret:
-        return _json({"error": "servono 'depart' e 'ret' in formato YYYY-MM-DD."})
+        return _json({"error": "'depart' and 'ret' are required, as YYYY-MM-DD."})
     if ret <= depart:
-        return _json({"error": "'ret' deve essere successiva a 'depart'."})
+        return _json({"error": "'ret' must be after 'depart'."})
 
     origin_airport = str(params.get("origin_airport") or "").strip().upper()
     dest_airport = str(params.get("dest_airport") or "").strip().upper()
     dest_city = str(params.get("dest_city") or "").strip()
     if not (origin_airport and dest_airport and dest_city):
-        return _json({"error": "servono origin_airport, dest_airport e dest_city."})
+        return _json({"error": "origin_airport, dest_airport and dest_city are required."})
 
     spec = _spec(
         params,
@@ -331,9 +331,9 @@ def price_trip(params: dict | None = None, **_kwargs: Any) -> str:
         session=session,
     )
     detail["notes"] = [
-        "Il volo è per persona; il soggiorno è il totale delle notti per il numero di camere.",
-        "Se 'flight.price_per_person' o 'hotel.stay_total' è null, quella fonte non ha "
-        "restituito prezzi per queste date: riprova dopo qualche secondo.",
+        "The flight is per person; the stay is the total for those nights for the number of rooms.",
+        "If 'flight.price_per_person' or 'hotel.stay_total' is null, that source returned no "
+        "prices for these dates: try again in a moment.",
     ]
     return _json(detail)
 
@@ -373,7 +373,7 @@ def history(params: dict | None = None, **_kwargs: Any) -> str:
         }
     if "flight" not in out and "hotel" not in out:
         out["note"] = (
-            "Per lo storico di un volo servono origin_airport, dest_airport, depart, ret; "
-            "per un soggiorno dest_city, depart, ret."
+            "A flight history needs origin_airport, dest_airport, depart and ret; "
+            "a stay history needs dest_city, depart and ret."
         )
     return _json(out)

@@ -110,13 +110,13 @@ def daily_rates(city: str, country: str = "") -> tuple[float, float, str]:
     country_key = (country or "").strip().upper()
     if city_key in FOOD_BY_CITY:
         food = FOOD_BY_CITY[city_key]
-        basis = f"livello città ({city})"
+        basis = f"city level ({city})"
     elif country_key in FOOD_BY_COUNTRY:
         food = FOOD_BY_COUNTRY[country_key]
-        basis = f"livello paese ({country_key})"
+        basis = f"country level ({country_key})"
     else:
         food = DEFAULT_FOOD
-        basis = "stima generica (paese non in tabella)"
+        basis = "generic estimate (country not in the table)"
     activities = ACTIVITIES_BY_COUNTRY.get(country_key, DEFAULT_ACTIVITIES)
     return food, activities, basis
 
@@ -134,7 +134,7 @@ def estimate_stay(
     """Stima per `nights` notti: i giorni sul posto sono nights + 1."""
     food_rate, activity_rate, basis = daily_rates(city, country)
     if food_per_day is not None:
-        food_rate, basis = float(food_per_day), "valore fornito dall'utente"
+        food_rate, basis = float(food_per_day), "value provided by the user"
     if activities_per_day is not None:
         activity_rate = float(activities_per_day)
     days = max(1, int(nights) + 1)
@@ -151,7 +151,7 @@ def estimate_stay(
 
 
 ESTIMATE_DISCLAIMER = (
-    "Stime indicative, non preventivi: cibo e attrazioni sono calcolati su una spesa "
-    "quotidiana da viaggio economico (bar/supermercato e un biglietto al giorno) per "
-    "persona, sui giorni di presenza (notti + 1)."
+    "Estimates, not quotes: food and attractions are priced as a cheap-travel daily budget "
+    "(bar or supermarket and one ticket a day) per person, on the days actually on the ground "
+    "(nights + 1)."
 )

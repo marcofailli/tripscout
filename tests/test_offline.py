@@ -242,7 +242,7 @@ def test_estimates_days_and_rates() -> None:
     assert est2.days == 2
     assert est2.food_total == 60.0  # 15 * 2 giorni * 2 persone
     assert est2.activities_total == 0.0
-    assert "utente" in est2.basis
+    assert "user" in est2.basis
 
     # una città più cara del paese viene trattata come tale
     est3 = estimate_stay(city="Zurigo", country="CH", nights=1)

@@ -20,7 +20,7 @@ IMPERSONATE_OS = "macos"
 GOOGLE_ROOT = "https://www.google.com/"
 
 MISSING_DEP = (
-    "tripscout richiede il pacchetto 'primp' (e 'fast-flights' per i voli): "
+    "tripscout needs the 'primp' package (and 'fast-flights' for flights): "
     "pip install primp fast-flights"
 )
 
@@ -86,7 +86,7 @@ class Session:
         with self._lock:
             if self.max_requests is not None and self.requests >= self.max_requests:
                 raise BudgetExhausted(
-                    f"budget di {self.max_requests} richieste esaurito"
+                    f"request budget of {self.max_requests} exhausted"
                 )
             self.requests += 1
 
@@ -122,14 +122,14 @@ class Session:
                 raise last_error
             text = response.text
             if looks_blocked(text):
-                last_error = GoogleBlocked("Google ha risposto con consenso/blocco")
+                last_error = GoogleBlocked("Google answered with a consent or challenge page")
                 if attempt < self._max_retries:
                     self.retries += 1
                     time.sleep(2.0 * (attempt + 1))
                     continue
                 raise last_error
             return response
-        raise last_error if last_error else RuntimeError("richiesta fallita")
+        raise last_error if last_error else RuntimeError("request failed")
 
     def get(self, url: str, *, params: dict | None = None):
         return self._run(lambda: self._client.get(url, params=params))

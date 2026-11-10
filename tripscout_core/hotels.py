@@ -274,7 +274,7 @@ def parse_stays(text: str, *, currency: str = "EUR", rentals_mode: bool = False)
     if "unusual traffic" in text.casefold() or "/sorry/" in text.casefold():
         from tripscout_core.net import GoogleBlocked
 
-        raise GoogleBlocked("Google Hotels ha bloccato la richiesta")
+        raise GoogleBlocked("Google Hotels blocked the request")
     records: list = []
     for payload in wrb_payloads(text):
         _collect(payload, records)
