@@ -16,6 +16,14 @@ _HERE = Path(__file__).resolve().parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
+# Un reload in-process (`hermes plugins update`, enable/disable) riusa i moduli
+# già in sys.modules: senza questa pulizia il gateway continuerebbe a girare con
+# il motore della versione precedente e la registrazione fallirebbe su un
+# attributo appena aggiunto. Si butta via solo il proprio namespace.
+for _stale in [name for name in list(sys.modules)
+               if name == "tripscout_core" or name.startswith("tripscout_core.")]:
+    del sys.modules[_stale]
+
 from tripscout_core import schemas, tools  # noqa: E402
 
 TOOLSET = "tripscout"
