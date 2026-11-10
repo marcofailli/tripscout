@@ -7,7 +7,7 @@ import json
 from datetime import date, timedelta
 from typing import Any
 
-from tripscout_core import store
+from tripscout_core import links, store
 from tripscout_core.grid import parse_weekdays, weekend_windows
 from tripscout_core.net import Session
 from tripscout_core.optimizer import (
@@ -253,7 +253,7 @@ def _spec(params: dict, *, origins: list[Origin], destinations: list[Destination
     )
 
 
-def _line(option: Option) -> dict[str, Any]:
+def _line(option: Option, adults: int = 1, home: str | None = None) -> dict[str, Any]:
     """Un'opzione in forma leggibile più i numeri grezzi, per il modello."""
     return {
         "city": f"{option.dest_city}" + (f" ({option.dest_country})" if option.dest_country else ""),
@@ -280,6 +280,25 @@ def _line(option: Option) -> dict[str, Any]:
         "flight_departure": option.flight_departure,
         "flight_arrival": option.flight_arrival,
         "from_cache": option.from_cache,
+        "links": (
+            {
+                "flight": links.flight(
+                    option.origin_airport, option.dest_airport, option.depart, option.ret
+                ),
+                "stay": links.stay(
+                    option.hotel_name,
+                    option.dest_city,
+                    option.depart,
+                    option.ret,
+                    adults=max(1, adults),
+                    kind=option.lodging_kind,
+                ),
+                "ground": links.ground(home or option.origin_city, option.origin_airport),
+                "transfer": links.transfer(option.dest_airport, option.dest_city),
+            }
+            if option.origin_airport and option.dest_airport
+            else {}
+        ),
     }
 
 
@@ -287,6 +306,9 @@ def search(params: dict | None = None, **_kwargs: Any) -> str:
     """Ricerca congiunta su tutta la griglia."""
     params = params or {}
     origins = _origins(params.get("origins"))
+    # la città di casa serve ai link "come arrivo in aeroporto": è il punto di
+    # partenza del viaggio, non la città dell'aeroporto
+    home = (params.get("home") or params.get("from_city") or "").strip() or None
     resolved_from = ""
     if not origins:
         from tripscout_core.origins import resolve
@@ -400,9 +422,9 @@ def search(params: dict | None = None, **_kwargs: Any) -> str:
             "estimates": spec.estimates,
             "resolved_from": resolved_from or None,
         },
-        "best": _line(result.options[0]) if result.options else None,
-        "options": [_line(o) for o in result.options],
-        "best_per_destination": [_line(o) for o in result.best_per_destination],
+        "best": _line(result.options[0], spec.adults, home) if result.options else None,
+        "options": [_line(o, spec.adults, home) for o in result.options],
+        "best_per_destination": [_line(o, spec.adults, home) for o in result.best_per_destination],
         "notes": notes,
         "stats": result.stats,
     }

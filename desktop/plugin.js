@@ -74,6 +74,51 @@ function Section({ title, aside, children }) {
   })
 }
 
+function LinkChip({ href, children }) {
+  return jsx('a', {
+    href,
+    target: '_blank',
+    rel: 'noreferrer',
+    onClick: event => event.stopPropagation(),
+    className:
+      'rounded border border-(--ui-stroke-secondary) px-1.5 py-0.5 text-[0.625rem] text-(--ui-accent) hover:bg-(--chrome-action-hover)',
+    children
+  })
+}
+
+// Il portale giusto per il tipo di letto: ostello → Hostelworld, appartamento →
+// Airbnb, altrimenti Booking. Google Hotels resta sempre come ripiego.
+function stayPortal(option) {
+  const stay = (option.links && option.links.stay) || {}
+  if (option.lodging_kind === 'hostel' && stay.hostelworld) return { href: stay.hostelworld, label: 'hostelworld' }
+  if (option.lodging_kind === 'apartment' && stay.airbnb) return { href: stay.airbnb, label: 'airbnb' }
+  if (stay.booking) return { href: stay.booking, label: 'booking.com' }
+  return null
+}
+
+function BookingLinks({ option }) {
+  const links = option.links || {}
+  if (!links.flight) return null
+  const portal = stayPortal(option)
+  return jsxs('div', {
+    className: 'mt-2 flex flex-col gap-1 border-t pt-1.5',
+    style: HAIRLINE,
+    children: [
+      jsx('div', { className: 'text-[0.625rem] uppercase tracking-wide text-(--ui-text-quaternary)', children: 'book it' }),
+      jsxs('div', {
+        className: 'flex flex-wrap gap-1',
+        children: [
+          jsx(LinkChip, { href: links.flight, children: 'flight' }),
+          portal ? jsx(LinkChip, { href: portal.href, children: portal.label }) : null,
+          links.stay && links.stay.google ? jsx(LinkChip, { href: links.stay.google, children: 'google hotels' }) : null,
+          jsx(LinkChip, { href: links.ground, children: 'to the airport' }),
+          jsx(LinkChip, { href: links.transfer, children: 'airport → town' })
+        ]
+      })
+    ]
+  })
+}
+
 function Breakdown({ option }) {
   const est = option.estimate
   const line = (text, className) => jsx('div', { className: className || 'text-(--ui-text-secondary)', children: text })
@@ -89,7 +134,8 @@ function Breakdown({ option }) {
             'text-(--ui-text-quaternary)'
           )
         : null,
-      option.flight_departure ? line(`${(option.airlines || []).join(', ') || 'flight'} · ${option.flight_departure}`, 'text-(--ui-text-quaternary)') : null
+      option.flight_departure ? line(`${(option.airlines || []).join(', ') || 'flight'} · ${option.flight_departure}`, 'text-(--ui-text-quaternary)') : null,
+      jsx(BookingLinks, { option })
     ]
   })
 }
@@ -557,9 +603,9 @@ function TripscoutPane() {
               {
                 className: cn(
                   'cursor-pointer rounded border px-2 py-1.5 transition-colors hover:bg-(--chrome-action-hover)',
-                  index === 0 ? 'border-(--ui-accent)' : ''
+                  index === 0 || open === index ? 'border-(--ui-accent)' : ''
                 ),
-                style: index === 0 ? undefined : HAIRLINE,
+                style: index === 0 || open === index ? undefined : HAIRLINE,
                 onClick: () => setOpen(open === index ? null : index),
                 children: [
                   jsxs('div', {

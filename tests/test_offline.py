@@ -349,6 +349,26 @@ def test_search_with_home_instead_of_origins() -> None:
     assert listed["count"] >= 20
 
 
+def test_booking_links_are_prefilled():
+    from tripscout_core import links
+
+    flight = links.flight("PSA", "BUD", "2026-11-26", "2026-11-28")
+    assert flight.startswith("https://www.google.com/travel/flights?q=")
+    assert "BUD" in flight and "PSA" in flight and "2026-11-26" in flight
+
+    stay = links.stay("Flow Spaces", "Budapest", "2026-11-26", "2026-11-28", adults=2, kind="hostel")
+    assert "checkin=2026-11-26" in stay["booking"] and "group_adults=2" in stay["booking"]
+    assert "date_from=2026-11-26" in stay["hostelworld"]
+    assert "adults=2" in stay["airbnb"]
+    assert stay["google"].startswith("https://www.google.com/travel/search")
+
+    ground = links.ground("Prato", "PSA")
+    assert "origin=Prato" in ground and "PSA" in ground and "travelmode=transit" in ground
+
+    moved = links.transfer("BUD", "Budapest")
+    assert "BUD" in moved and "Budapest" in moved
+
+
 def main() -> int:
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_")]
     failures = 0
