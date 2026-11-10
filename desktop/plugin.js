@@ -58,7 +58,7 @@ function Breakdown({ option }) {
       }),
       est
         ? jsx('div', {
-            children: `+ ${est.food_total.toFixed(0)} food + ${est.activities_total.toFixed(0)} tickets = ${option.total_with_estimates.toFixed(0)} ${option.currency} all-in (estimate)`
+            children: `+ ${est.food_total.toFixed(0)} food + ${est.activities_total.toFixed(0)} tickets = ${option.total_with_estimates.toFixed(0)} ${option.currency || ''} all-in (estimate)`
           })
         : null,
       jsx('div', {
@@ -87,11 +87,18 @@ function TripscoutPane() {
   const [error, setError] = useState('')
 
   useEffect(() => {
-    if (!API) return
+    if (!API || typeof API.rest !== 'function') {
+      setError('this build of Hermes Desktop does not expose ctx.rest — use the tripscout tools from chat instead')
+      return
+    }
     let alive = true
-    API.rest('/presets')
-      .then(data => alive && setPresets(data))
-      .catch(err => alive && setError(String(err && err.message ? err.message : err)))
+    try {
+      API.rest('/presets')
+        .then(data => alive && setPresets(data))
+        .catch(err => alive && setError(String(err && err.message ? err.message : err)))
+    } catch (err) {
+      setError(String(err && err.message ? err.message : err))
+    }
     return () => {
       alive = false
     }

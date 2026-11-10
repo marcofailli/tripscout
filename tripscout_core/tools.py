@@ -255,6 +255,7 @@ def _line(option: Option) -> dict[str, Any]:
         "from": f"{option.origin_city} {option.origin_airport}",
         "total": round(option.total, 2),
         "total_text": f"{option.total:.0f} {option.currency}",
+        "currency": option.currency,
         "flight": round(option.flight_total, 2),
         "hotel": round(option.hotel_total, 2),
         "hotel_name": option.hotel_name,
