@@ -336,7 +336,7 @@ function TripscoutPane() {
   }
 
   return jsxs('div', {
-    className: 'flex h-full flex-col overflow-auto text-xs',
+    className: 'flex h-full min-w-0 flex-col overflow-y-auto overflow-x-hidden text-xs',
     children: [
       // ---------- testata ----------
       jsxs('div', {
@@ -676,8 +676,19 @@ function TripscoutPane() {
                 className: 'flex flex-col items-center gap-1 rounded border p-3 text-center',
                 style: HAIRLINE,
                 children: [
-                  jsx('div', { className: 'text-xs text-(--ui-text-secondary)', children: 'nothing inside those limits' }),
-                  jsx('div', { className: muted, children: 'widen the dates, raise the budget, or switch "anywhere" on' })
+                  jsx('div', {
+                    className: 'text-xs text-(--ui-text-secondary)',
+                    children: stats && stats.combinations_ranked
+                      ? `the search priced ${stats.combinations_ranked} trips but returned none`
+                      : 'nothing came back for those dates'
+                  }),
+                  jsx('div', {
+                    className: muted,
+                    children:
+                      (result.notes || []).find(note => /partial/i.test(note)) ||
+                      (result.notes || [])[0] ||
+                      'widen the dates, raise the budget, or switch "anywhere" on'
+                  })
                 ]
               })
             : null
@@ -697,7 +708,7 @@ export default {
       id: 'pane',
       area: 'panes',
       title: 'tripscout',
-      data: { placement: 'right', width: '380px' },
+      data: { placement: 'right', width: '420px' },
       render: () => jsx(TripscoutPane, {})
     })
   }

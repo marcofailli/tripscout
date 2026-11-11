@@ -120,7 +120,9 @@ async def start_search(body: dict[str, Any]) -> dict[str, Any]:
         if isinstance(raw_destinations, list)
         else ([str(raw_destinations)] if raw_destinations else [])
     )
-    wants_any = not picked or any(name.strip().casefold() in ("any", "no matter", "*") for name in picked)
+    wants_any = not picked or any(
+        name.strip().casefold() in ("any", "anywhere", "no matter", "*") for name in picked
+    )
     wants_cheapest = any(name.strip().casefold() in ("cheapest", "cheap") for name in picked)
     if wants_cheapest:
         # "cheapest": nessuna rosa ristretta, tutte le città conosciute e poche
