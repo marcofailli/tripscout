@@ -80,7 +80,8 @@ async def presets() -> dict[str, Any]:
         "home_cities": homes,
         "destinations": [
             {
-                "city": c.city,
+                "city": cities.english(c.city),
+                "key": c.city,
                 "country": c.country,
                 "airports": c.airports,
                 "transfer_cost": c.transfer_cost,

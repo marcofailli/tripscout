@@ -150,14 +150,25 @@ for _alias, _canonical in _ALIASES.items():
 
 
 def resolve(name: str | None) -> CityPreset | None:
-    """Nome città -> preset, o None se non è in tabella."""
+    """Nome città -> preset, o None se non è in tabella.
+
+    Accetta il nome canonico (italiano), quello inglese e le varianti con
+    nazione fra parentesi, così il pannello può mostrare "Prague" e rimandare
+    indietro "Prague" senza che il backend si confonda.
+    """
     if not name:
         return None
     key = " ".join(str(name).strip().casefold().split())
     if key in _INDEX:
         return _INDEX[key]
     head = key.replace(",", " ").split("(")[0].strip()
-    return _INDEX.get(head)
+    found = _INDEX.get(head)
+    if found is not None:
+        return found
+    for canonical, label in EN_NAMES.items():
+        if label.casefold() == head:
+            return _INDEX.get(canonical.casefold())
+    return None
 
 
 def all_cities(region: str | None = None) -> list[CityPreset]:
@@ -173,6 +184,69 @@ def regions() -> list[str]:
         if preset.region and preset.region not in seen:
             seen.append(preset.region)
     return seen
+
+
+# Nomi inglesi: il plugin e il suo catalogo sono English-first, e le città
+# italiane ("Londra", "Cracovia") stonano in un output inglese. La chiave resta
+# il nome canonico (quello italiano), che serve anche per la ricerca su Google.
+EN_NAMES = {
+    "Praga": "Prague",
+    "Cracovia": "Krakow",
+    "Varsavia": "Warsaw",
+    "Danzica": "Gdansk",
+    "Lubiana": "Ljubljana",
+    "Zagabria": "Zagreb",
+    "Belgrado": "Belgrade",
+    "Bucarest": "Bucharest",
+    "Cluj": "Cluj-Napoca",
+    "Copenaghen": "Copenhagen",
+    "Stoccolma": "Stockholm",
+    "Göteborg": "Gothenburg",
+    "Berlino": "Berlin",
+    "Monaco di Baviera": "Munich",
+    "Amburgo": "Hamburg",
+    "Colonia": "Cologne",
+    "Bruxelles": "Brussels",
+    "Parigi": "Paris",
+    "Lione": "Lyon",
+    "Marsiglia": "Marseille",
+    "Nizza": "Nice",
+    "Londra": "London",
+    "Dublino": "Dublin",
+    "Zurigo": "Zurich",
+    "Ginevra": "Geneva",
+    "Barcellona": "Barcelona",
+    "Siviglia": "Seville",
+    "Lisbona": "Lisbon",
+    "Atene": "Athens",
+    "Salonicco": "Thessaloniki",
+    "La Valletta": "Valletta",
+    # città di partenza italiane (i preset di origins usano il nome locale)
+    "Firenze": "Florence",
+    "Roma": "Rome",
+    "Milano": "Milan",
+    "Torino": "Turin",
+    "Venezia": "Venice",
+    "Napoli": "Naples",
+    "Genova": "Genoa",
+    "Bari": "Bari",
+    "Verona": "Verona",
+    "Bergamo": "Bergamo",
+    "Pisa": "Pisa",
+    "Bologna": "Bologna",
+    "Rimini": "Rimini",
+    "Pescara": "Pescara",
+    "Cagliari": "Cagliari",
+    "Catania": "Catania",
+    "Palermo": "Palermo",
+    "Treviso": "Treviso",
+    "Monaco": "Munich",
+}
+
+
+def english(city: str) -> str:
+    """Nome inglese della città, se esiste una traduzione."""
+    return EN_NAMES.get(city, city)
 
 
 def as_destinations(names: list[str]) -> list[dict[str, Any]]:

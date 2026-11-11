@@ -7,7 +7,7 @@ import json
 from datetime import date, timedelta
 from typing import Any
 
-from tripscout_core import links, store
+from tripscout_core import cities, links, store
 from tripscout_core.grid import parse_weekdays, weekend_windows
 from tripscout_core.net import Session
 from tripscout_core.optimizer import (
@@ -256,9 +256,10 @@ def _spec(params: dict, *, origins: list[Origin], destinations: list[Destination
 def _line(option: Option, adults: int = 1, home: str | None = None) -> dict[str, Any]:
     """Un'opzione in forma leggibile più i numeri grezzi, per il modello."""
     return {
-        "city": f"{option.dest_city}" + (f" ({option.dest_country})" if option.dest_country else ""),
-        "dates": f"{option.depart} → {option.ret} ({option.nights} notti)",
-        "from": f"{option.origin_city} {option.origin_airport}",
+        "city": cities.english(option.dest_city)
+        + (f" ({option.dest_country})" if option.dest_country else ""),
+        "dates": f"{option.depart} → {option.ret} ({option.nights} nights)",
+        "from": f"{cities.english(option.origin_city)} {option.origin_airport}",
         "total": round(option.total, 2),
         "total_text": f"{option.total:.0f} {option.currency}",
         "currency": option.currency,
