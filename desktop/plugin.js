@@ -12,6 +12,32 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 const ID = 'tripscout'
 
+// Nomi inglesi dei chip, lato pannello: così la UI resta English-first anche se
+// il backend che risponde a /presets è una revisione vecchia (che manda i nomi
+// italiani). Si manda sempre la chiave canonica, che il backend capisce.
+const NAMES = {
+  Praga: 'Prague', Cracovia: 'Krakow', Varsavia: 'Warsaw', Danzica: 'Gdansk',
+  Lubiana: 'Ljubljana', Zagabria: 'Zagreb', Belgrado: 'Belgrade', Bucarest: 'Bucharest',
+  Cluj: 'Cluj-Napoca', Copenaghen: 'Copenhagen', Stoccolma: 'Stockholm',
+  Göteborg: 'Gothenburg', Berlino: 'Berlin', 'Monaco di Baviera': 'Munich',
+  Amburgo: 'Hamburg', Colonia: 'Cologne', Bruxelles: 'Brussels', Parigi: 'Paris',
+  Lione: 'Lyon', Marsiglia: 'Marseille', Nizza: 'Nice', Londra: 'London',
+  Dublino: 'Dublin', Zurigo: 'Zurich', Ginevra: 'Geneva', Barcellona: 'Barcelona',
+  Siviglia: 'Seville', Lisbona: 'Lisbon', Atene: 'Athens', Salonicco: 'Thessaloniki',
+  'La Valletta': 'Valletta'
+}
+const TO_KEY = Object.fromEntries(Object.entries(NAMES).map(([it, en]) => [en, it]))
+
+function cityLabel(city) {
+  if (city.key) return NAMES[city.key] || city.key
+  return TO_KEY[city.city] ? city.city : NAMES[city.city] || city.city
+}
+
+function cityKey(city) {
+  if (city.key) return city.key
+  return TO_KEY[city.city] || city.city
+}
+
 // Quando "anywhere" è acceso il pannello sceglie lui le destinazioni: così non
 // dipende dal fatto che il backend conosca la parola magica "any".
 const CHEAP_FIRST = [
@@ -208,7 +234,8 @@ function TripscoutPane() {
     if (!needle) return allCities
     return allCities.filter(
       city =>
-        city.city.toLowerCase().includes(needle) ||
+        cityLabel(city).toLowerCase().includes(needle) ||
+        (city.key || '').toLowerCase().includes(needle) ||
         (city.country || '').toLowerCase().includes(needle) ||
         (city.airports || []).join(' ').toLowerCase().includes(needle)
     )
@@ -223,12 +250,12 @@ function TripscoutPane() {
 
   // shortlist: le prime 8 città "economiche prima" presenti nel catalogo
   const shortlist = useCallback(() => {
-    const byName = new Map(allCities.map(city => [city.city, city.city]))
-    const out = CHEAP_FIRST.filter(name => byName.has(name)).slice(0, 8)
+    const keys = allCities.map(cityKey)
+    const out = CHEAP_FIRST.filter(name => keys.includes(name)).slice(0, 8)
     if (out.length >= 8) return out
-    for (const city of allCities) {
+    for (const key of keys) {
       if (out.length >= 8) break
-      if (!out.includes(city.city)) out.push(city.city)
+      if (!out.includes(key)) out.push(key)
     }
     return out
   }, [allCities])
@@ -253,7 +280,7 @@ function TripscoutPane() {
       return
     }
     const destinationList =
-      mode === 'cheapest' ? allCities.map(city => city.city) : mode === 'anywhere' ? shortlist() : picked
+      mode === 'cheapest' ? allCities.map(cityKey) : mode === 'anywhere' ? shortlist() : picked
     if (!destinationList.length) {
       setError('the city list did not load — reopen the pane')
       return
@@ -367,7 +394,7 @@ function TripscoutPane() {
             ? `all ${allCities.length} cities`
             : mode === 'anywhere'
               ? `${shortlist().length} cheap-first cities`
-              : picked.length ? `${picked.length} picked` : 'nothing picked',
+              : picked.length ? `${picked.length} picked: ${picked.map(k => NAMES[k] || k).slice(0, 4).join(', ')}` : 'nothing picked',
         children: jsxs('div', {
           className: 'flex flex-col gap-1.5',
           children: [
@@ -407,12 +434,12 @@ function TripscoutPane() {
                   jsx(
                     Chip,
                     {
-                      on: mode === 'picked' && picked.includes(city.city),
+                      on: mode === 'picked' && picked.includes(cityKey(city)),
                       title: `${city.country} · ${city.airports.join(' / ')} · town transfer ${city.transfer_cost}`,
-                      onClick: () => togglePicked(city.city),
-                      children: city.city
+                      onClick: () => togglePicked(cityKey(city)),
+                      children: cityLabel(city)
                     },
-                    city.city
+                    cityKey(city)
                   )
                 ),
                 shown.length === 0
